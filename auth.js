@@ -69,6 +69,18 @@ const AUTH = (() => {
     } catch { return null; }
   }
 
+  // Qual crachá está guardado, sem copiar o crachá para outro lugar: um resumo
+  // curto dele. O login daqui anota o resumo do crachá que recebeu. Se o
+  // resumo mudou, quem gravou o crachá foi outro: o Painel planta o dele a
+  // cada entrada (entrada única), inclusive por cima do nosso.
+  function marca() {
+    const t = pegar();
+    if (!t) return '';
+    let h = 5381;
+    for (let i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0;
+    return t.length.toString(36) + '.' + h.toString(36);
+  }
+
   return {
     SISTEMA,
     CHAVE: K_TOKEN,
@@ -76,6 +88,7 @@ const AUTH = (() => {
     // O store assina cada chamada ao vof-sync com isto.
     cracha: pegar,
     dono,
+    marca,
     esquecer,
 
     async login(usuario, senha) {
@@ -89,6 +102,17 @@ const AUTH = (() => {
     // que está no aparelho); crachá recusado devolve false.
     async eu() {
       try { return await chamar('eu', {}, true); } catch (e) { return e.status === 401 ? false : null; }
+    },
+
+    // Troca a senha de quem é dono do crachá. A equipe-auth exige o crachá do
+    // V.O.F. (sis "vof") e a senha nova com ao menos 6 caracteres; confere a
+    // senha atual, menos quando a senha é provisória (criada por outra
+    // pessoa). A nova vai para todos os lugares onde a senha da pessoa mora
+    // (os outros sistemas, o Painel e a entrada única); o que não confirmar
+    // volta em `avisos`. Erro volta com a causa em e.erro, e 401 aqui NÃO é
+    // queda de sessão sozinho: "Senha atual incorreta." também é 401.
+    trocarMinhaSenha(senhaAtual, novaSenha) {
+      return chamar('trocarMinhaSenha', { senhaAtual, novaSenha }, true);
     },
   };
 })();

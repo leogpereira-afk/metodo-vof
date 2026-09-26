@@ -72,6 +72,13 @@ a { color: var(--vof-blue); }
 .cab-quem b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .cab-quem small { font-size: 12px; color: #a9cadb; }
 .cab-sair { flex: none; }
+/* Link de navegação: fica com os 44 px do .botao. No celular o texto vira
+   "Senha" (o nome acessível continua "Trocar minha senha"). */
+.cab-senha { flex: none; }
+/* Na própria troca, o link fica aceso como a aba atual (nenhuma aba acende ali). */
+.botao.fantasma-claro.cab-senha[aria-current="page"] { background: #fff; color: var(--vof-navy); border-color: #fff; }
+.cab-senha-curto { display: none; }
+.cartao-senha { max-width: 520px; }
 .abas { display: flex; gap: 4px; overflow-x: auto; padding: 0 12px 8px; max-width: 1460px; margin: 0 auto; scrollbar-width: thin; }
 .abas a {
   flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 8px 14px; border-radius: 10px;
@@ -390,6 +397,9 @@ body.modo-palco { background: #fff; overflow: hidden; }
   .duas { grid-template-columns: minmax(0, 1fr); }
   .cab-marca small { display: none; }
   .cab-quem { max-width: 34%; }
+  .cab-senha { padding-left: 12px; padding-right: 12px; }
+  .cab-senha-longo { display: none; }
+  .cab-senha-curto { display: inline; }
   .miolo { padding: 16px 16px 96px; }
   .cartao { padding: 16px 14px; }
   .apn-corpo { padding-left: 16px; }

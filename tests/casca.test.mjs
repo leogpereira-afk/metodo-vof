@@ -773,13 +773,13 @@ test('index.html carrega config, auth, store, metodo e app nessa ordem, com cami
   assert.ok(refs.includes('./metodo.css') && refs.includes('./styles.css'));
 });
 
-test('manifesto e service worker: caminhos relativos, cache vof-shell-v2', () => {
+test('manifesto e service worker: caminhos relativos, cache vof-shell-v3', () => {
   const man = JSON.parse(ler('manifest.webmanifest'));
   assert.equal(man.start_url, './');
   assert.equal(man.scope, './');
   for (const i of man.icons) assert.match(i.src, /^\.\//);
   const sw = ler('sw.js');
-  assert.match(sw, /const CACHE = 'vof-shell-v2'/);
+  assert.match(sw, /const CACHE = 'vof-shell-v3'/);
   const shell = /const SHELL\s*=\s*\[([\s\S]*?)\]/.exec(sw)[1];
   for (const m of shell.matchAll(/'([^']+)'/g)) assert.match(m[1], /^\.\//);
 });

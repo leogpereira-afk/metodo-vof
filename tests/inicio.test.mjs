@@ -285,10 +285,10 @@ test('CSP: cobre o backend do config.js e as fontes do Google; o código não de
 });
 
 /* ───────────── service worker ───────────── */
-test('sw.js: cache na versão nova (vof-shell-v2) e SHELL com tudo que o index.html e o manifesto pedem', () => {
+test('sw.js: cache na versão nova (vof-shell-v3) e SHELL com tudo que o index.html e o manifesto pedem', () => {
   const sw = ler('sw.js');
-  assert.match(sw, /const CACHE = 'vof-shell-v2';/);
-  assert.doesNotMatch(sw, /vof-shell-v1/);
+  assert.match(sw, /const CACHE = 'vof-shell-v3';/);
+  assert.doesNotMatch(sw, /vof-shell-v[12]'/);
   assert.match(sw, /const MEU_PREFIXO = 'vof-';/, 'a limpeza apaga a v1 e só as caches deste sistema');
   const shell = [...(/const SHELL\s*=\s*\[([\s\S]*?)\]/.exec(sw)[1]).matchAll(/'([^']+)'/g)].map(m => m[1]);
   assert.equal(new Set(shell).size, shell.length, 'SHELL sem repetição');

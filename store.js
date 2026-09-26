@@ -79,10 +79,28 @@ const STORE = (() => {
     const u = lerJSON(K_USER);
     return u && typeof u === 'object' && u.usuario ? u : null;
   }
+  // Além de quem é, a sessão guarda como nasceu: via "login" (a pessoa digitou
+  // a senha aqui; marca é o resumo do crachá que o login recebeu) ou "painel"
+  // (crachá plantado pela entrada única). E trocarSenha, quando o login disse
+  // que a senha é provisória: o app fica atrás da troca até ela acontecer.
+  function camposUser(u) {
+    const o = { usuario: String(u.usuario), nome: String(u.nome || u.usuario), papel: String(u.papel || '') };
+    if (u.via === 'login' || u.via === 'painel') o.via = u.via;
+    if (typeof u.marca === 'string' && u.marca) o.marca = u.marca;
+    if (u.trocarSenha === true) o.trocarSenha = true;
+    return o;
+  }
   function setUser(u) {
     epoch++; mem = null; conteudo = null; carregandoConteudo = null; atualizando = null;
     if (!u) { apagarLS(K_USER); return true; }
-    return gravarLS(K_USER, JSON.stringify({ usuario: String(u.usuario), nome: String(u.nome || u.usuario), papel: String(u.papel || '') }));
+    return gravarLS(K_USER, JSON.stringify(camposUser(u)));
+  }
+  // Muda só as marcas da sessão da MESMA pessoa (a senha deixou de ser
+  // provisória). Não é troca de conta: não zera a memória nem os dados.
+  function ajustarUser(campos) {
+    const u = getUser();
+    if (!u) return false;
+    return gravarLS(K_USER, JSON.stringify(camposUser(Object.assign({}, u, campos, { usuario: u.usuario }))));
   }
 
   // arquivados: códigos que o servidor marcou como apagados, por coleção. A
@@ -414,7 +432,7 @@ const STORE = (() => {
   return {
     COLECOES, apiFn, atualizar, col, um, arquivado, gravar, apagar, restaurar, carregarConteudo,
     conteudoEmMemoria: () => conteudo,
-    lerSala, gravarSala, urlArquivo, rascunho, contarRascunhos, limparConta, getUser, setUser,
+    lerSala, gravarSala, urlArquivo, rascunho, contarRascunhos, limparConta, getUser, setUser, ajustarUser,
     atualizadoEm: () => estado().em,
     on: (ev, fn) => { (ouvintes[ev] = ouvintes[ev] || []).push(fn); },
   };

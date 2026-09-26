@@ -76,6 +76,8 @@ const ESTADO = {
   sala: { codigo: '', rev: null, emVoo: false, desejado: null, escritoEm: 0, conexao: '', erro: '', ultimo: null },
   poll: null,
   redesenhoPendente: false,
+  // Só o fato de haver uma troca de senha em voo. A senha em si nunca mora aqui.
+  senha: { enviando: false },
 };
 
 const souAdmin = () => !!(ESTADO.sessao && ESTADO.sessao.papel === 'admin');
@@ -140,6 +142,14 @@ function temJanelaAberta() { return !!$('#overlays dialog'); }
 // Crachá sem usuário salvo é o caso da ENTRADA ÚNICA (o Painel planta só o
 // crachá). O dono sai do próprio crachá. Crachá de outra pessoa que não a
 // salva (aparelho dividido): vale o dono do crachá, que é quem o servidor vê.
+//
+// Como a sessão nasceu (via) decide o recado da troca de senha. "Usuário
+// salvo ausente" só responde isso na PRIMEIRA abertura: depois dela o usuário
+// fica salvo. Por isso o login daqui anota o resumo do crachá que recebeu
+// (AUTH.marca). Só é via "login" o crachá que o login daqui recebeu; qualquer
+// outro (sem usuário salvo, salvo sem a anotação, ou o Painel gravando o dele
+// por cima do nosso) é via "painel". A senha provisória só vale para o
+// crachá do login que a informou.
 function sessaoInicial() {
   const salvo = STORE.getUser();
   if (!AUTH.temCracha()) { if (salvo) STORE.setUser(null); return null; }
@@ -149,8 +159,13 @@ function sessaoInicial() {
     ESTADO.recadoLogin = 'Seu acesso venceu ou não é deste sistema. Entre de novo.';
     return null;
   }
-  if (!salvo || salvo.usuario !== dono.usuario || salvo.papel !== dono.papel || salvo.nome !== dono.nome) STORE.setUser(dono);
-  return { usuario: dono.usuario, nome: dono.nome, papel: dono.papel };
+  const doLogin = !!(salvo && salvo.usuario === dono.usuario && salvo.via === 'login' && salvo.marca && salvo.marca === AUTH.marca());
+  const sessao = { usuario: dono.usuario, nome: dono.nome, papel: dono.papel, via: doLogin ? 'login' : 'painel' };
+  if (doLogin) { sessao.marca = salvo.marca; if (salvo.trocarSenha === true) sessao.trocarSenha = true; }
+  const igual = salvo && salvo.usuario === sessao.usuario && salvo.papel === sessao.papel && salvo.nome === sessao.nome &&
+    salvo.via === sessao.via && (salvo.marca || '') === (sessao.marca || '') && (salvo.trocarSenha === true) === (sessao.trocarSenha === true);
+  if (!igual) STORE.setUser(sessao);
+  return sessao;
 }
 function encerrarSessao(recado) {
   pararPoll();
@@ -164,6 +179,7 @@ function encerrarSessao(recado) {
   ESTADO.metodoCtl = null;
   ESTADO.diag.rascunho = null;
   ESTADO.plano.rascunhos = {};
+  ESTADO.senha = { enviando: false };
   ESTADO.sync = { estado: 'nunca', erro: '' };
   $$('#overlays dialog').forEach(d => d.remove());
   renderApp();
@@ -236,6 +252,9 @@ function htmlCab(ativa) {
     '<div class="cab-linha">' +
     '<a class="cab-marca" href="#/"><img src="./icone-192.png" alt="" width="40" height="40"><span><b>Método V.O.F.</b><small>Venda, Operação e Finanças</small></span></a>' +
     '<div class="cab-quem" aria-label="Quem entrou"><b data-quem-nome>' + esc(s.nome) + '</b><small data-quem-papel>' + esc(rotuloPapel(s.papel)) + '</small></div>' +
+    // No celular o texto encolhe para "Senha"; o nome acessível fica inteiro.
+    '<a class="botao fantasma-claro cab-senha" href="#/senha" data-trocar-senha aria-label="Trocar minha senha"' + (ativa === 'senha' ? ' aria-current="page"' : '') + '>' +
+    '<span class="cab-senha-longo">Trocar minha senha</span><span class="cab-senha-curto">Senha</span></a>' +
     '<button type="button" class="botao fantasma-claro cab-sair" data-sair>Sair</button>' +
     '</div>' +
     '<nav class="abas" aria-label="Áreas do sistema">' +
@@ -290,9 +309,14 @@ function renderLogin(app) {
     const bt = $('#lg-entrar'); bt.disabled = true; bt.textContent = 'Entrando…';
     try {
       const r = await AUTH.login(u, s);
-      STORE.setUser({ usuario: r.usuario, nome: r.nome || r.usuario, papel: r.papel });
-      ESTADO.sessao = { usuario: r.usuario, nome: r.nome || r.usuario, papel: r.papel };
+      // Senha provisória (criada por outra pessoa): a troca vem antes de
+      // qualquer área, e a marca fica guardada até a troca acontecer.
+      const sessao = { usuario: r.usuario, nome: r.nome || r.usuario, papel: r.papel, via: 'login', marca: AUTH.marca() };
+      if (r.trocarSenha === true) sessao.trocarSenha = true;
+      STORE.setUser(sessao);
+      ESTADO.sessao = sessao;
       ESTADO.recadoLogin = ''; ESTADO.loginUsuario = '';
+      if (sessao.trocarSenha) location.hash = '#/senha';
       renderApp();
       confirmarSessao();
     } catch (e) {
@@ -302,6 +326,144 @@ function renderLogin(app) {
       erro.innerHTML = avisoHTML(msg, 'vermelho');
     }
   });
+}
+
+/* ══════════ trocar a senha ══════════ */
+// Quem troca é a equipe-auth (ação trocarMinhaSenha): ela exige o crachá do
+// V.O.F., a senha nova com ao menos SENHA_MINIMA caracteres (a régua é a
+// dela) e confere a senha atual, menos quando a senha é provisória. A nova
+// vai para todos os lugares onde a senha da pessoa mora: os outros sistemas,
+// o Painel e a entrada única. O que não confirmar volta em `avisos`, e a tela
+// mostra em vez de dizer "trocada" e pronto.
+//
+// Senha provisória (sessao.trocarSenha, vinda do login): o app inteiro fica
+// atrás desta tela até a troca (ver renderApp). Ninguém trabalha com uma
+// senha que um terceiro conhece. A senha atual é pedida mesmo assim: se a
+// marca estiver velha (a pessoa já trocou em outro sistema), a equipe-auth
+// confere a atual, e sem o campo a pessoa ficaria presa aqui.
+//
+// Entrada única (sessao.via "painel"): a pessoa não digitou senha nenhuma
+// aqui. A tela diz onde se troca a senha que ela usa e mostra o formulário
+// mesmo assim.
+const SENHA_MINIMA = 6;
+function renderTrocarSenha(app) {
+  const s = ESTADO.sessao;
+  const obrigado = s.trocarSenha === true;
+  const viaPainel = s.via !== 'login';
+  if (obrigado) document.title = 'Crie a sua senha · Método V.O.F.';
+  const recado = obrigado
+    ? '<div class="aviso amarelo" data-recado>Sua senha é provisória: foi criada por outra pessoa. Crie a sua para continuar. Nenhuma área abre antes disso.</div>'
+    : viaPainel
+      ? '<div class="aviso azul" data-recado data-recado-painel><p>Você entrou pelo Painel. A senha que você usa é a do Painel: troque em Painel, no seu nome, Minha conta. A senha própria do V.O.F. só serve para entrar direto por este endereço.</p>' +
+        '<p>Se você sabe essa senha, pode trocar aqui mesmo. A senha nova passa a valer também no Painel e nos outros sistemas em que você tem conta.</p></div>'
+      : '';
+  const form =
+    '<form id="form-senha" novalidate>' +
+    // Sem o usuário no formulário, o gerenciador de senhas não sabe de quem é a senha nova.
+    '<input type="text" name="username" autocomplete="username" value="' + esc(s.usuario) + '" readonly hidden>' +
+    '<div class="campo"><label for="sn-atual">' + (obrigado ? 'Senha atual (a provisória, com que você entrou)' : 'Senha atual') + '</label>' +
+    '<input id="sn-atual" type="password" autocomplete="current-password"></div>' +
+    '<div class="campo"><label for="sn-nova">Senha nova (ao menos ' + SENHA_MINIMA + ' caracteres)</label>' +
+    '<input id="sn-nova" type="password" autocomplete="new-password" minlength="' + SENHA_MINIMA + '"></div>' +
+    '<div class="campo"><label for="sn-rep">Repita a senha nova</label>' +
+    '<input id="sn-rep" type="password" autocomplete="new-password"></div>' +
+    '<div id="sn-erro" role="alert"></div>' +
+    '<button class="botao largo" type="submit" id="sn-salvar"' + (ESTADO.senha.enviando ? ' disabled>Salvando…' : '>Salvar a senha nova') + '</button>' +
+    (viaPainel ? '' : '<p class="dica">A senha é uma só: a nova passa a valer também no Painel e nos outros sistemas em que você tem conta.</p>') +
+    '</form>';
+  if (obrigado) {
+    app.innerHTML =
+      '<div class="tela-login"><div class="cartao-login">' +
+      '<img src="./icone-192.png" alt="" width="84" height="84">' +
+      '<h1>Crie a sua senha</h1>' +
+      '<p class="sub2">' + esc(s.nome) + '</p>' +
+      recado + form +
+      // Sem esta saída, quem cai aqui sem saber a senha fica preso na tela.
+      '<div class="acoes"><button type="button" class="botao fantasma largo" data-sair>Sair</button></div>' +
+      '</div></div>';
+    $('[data-sair]', app).addEventListener('click', sairDaConta);
+  } else {
+    app.innerHTML = pagina('senha', tituloArea('Trocar minha senha', s.nome) +
+      '<section class="cartao cartao-senha" id="caixa-senha">' + recado + form + '</section>');
+    ligarCab();
+  }
+  $('#form-senha').addEventListener('submit', ev => { ev.preventDefault(); enviarTrocaSenha(); });
+}
+
+// Os três campos de senha. A tela lê o valor na hora de enviar e esvazia os
+// campos quando a resposta chega, certa ou errada: a senha não passa por
+// ESTADO, rascunho nem memória do aparelho, e não fica esperando na tela.
+const CAMPOS_SENHA = ['sn-atual', 'sn-nova', 'sn-rep'];
+function limparSenhas(ids) { (ids || CAMPOS_SENHA).forEach(id => { const i = $('#' + id); if (i) i.value = ''; }); }
+function erroSenha(texto, foco) {
+  const e = $('#sn-erro'); if (e) e.innerHTML = avisoHTML(texto, 'vermelho');
+  const f = foco ? $('#' + foco) : null;
+  if (f && typeof f.focus === 'function') f.focus();
+}
+// O envio em voo mora em ESTADO, não na tela: ela pode ser redesenhada no
+// meio da espera (hash trocado na mão, voltar do navegador) e o botão novo
+// precisa saber que já há um envio, senão o segundo toque manda outra troca.
+function pintarBotaoSenha() {
+  const bt = $('#sn-salvar'); if (!bt) return;
+  bt.disabled = ESTADO.senha.enviando;
+  bt.textContent = ESTADO.senha.enviando ? 'Salvando…' : 'Salvar a senha nova';
+}
+async function enviarTrocaSenha() {
+  const voo = ESTADO.senha;
+  if (voo.enviando || !ESTADO.sessao) return;
+  const ca = $('#sn-atual'), cn = $('#sn-nova'), cr = $('#sn-rep');
+  if (!ca || !cn || !cr) return;
+  const atual = ca.value || '', nova = cn.value || '', repetida = cr.value || '';
+  if (!atual) { erroSenha('Digite a sua senha atual.', 'sn-atual'); return; }
+  if (nova.length < SENHA_MINIMA) { limparSenhas(['sn-nova', 'sn-rep']); erroSenha('A senha nova precisa de ao menos ' + SENHA_MINIMA + ' caracteres.', 'sn-nova'); return; }
+  if (nova !== repetida) { limparSenhas(['sn-nova', 'sn-rep']); erroSenha('As duas senhas novas não são iguais. Digite as duas de novo.', 'sn-nova'); return; }
+  if (nova === atual) { limparSenhas(['sn-nova', 'sn-rep']); erroSenha('A senha nova precisa ser diferente da atual.', 'sn-nova'); return; }
+  const quem = ESTADO.sessao.usuario, obrigado = ESTADO.sessao.trocarSenha === true;
+  voo.enviando = true; pintarBotaoSenha();
+  const caixa = $('#sn-erro'); if (caixa) caixa.innerHTML = '';
+  let r = null, falha = null;
+  try { r = await AUTH.trocarMinhaSenha(atual, nova); } catch (e) { falha = e; }
+  voo.enviando = false;
+  // Saiu ou trocou de conta durante a espera: a resposta não é de quem está aqui.
+  if (ESTADO.senha !== voo || !ESTADO.sessao || ESTADO.sessao.usuario !== quem) return;
+  const naTela = ESTADO.rota.nome === 'senha' && !!$('#form-senha');
+  limparSenhas(); pintarBotaoSenha();
+  if (falha) {
+    const causa = falha.erro || falha.message || 'O servidor não aceitou a troca.';
+    const senhaAtualErrada = falha.status === 401 && /senha atual/i.test(causa);
+    // 401 que não é a senha atual: o crachá foi recusado. A equipe-auth
+    // confere o crachá antes de tudo, então a troca nem começou.
+    if (falha.status === 401 && !senhaAtualErrada) {
+      encerrarSessao('Sua sessão terminou antes da troca, e a senha não mudou. Entre de novo para trocar.');
+      return;
+    }
+    let msg = causa;
+    if (falha.rede) msg = 'Sem resposta do servidor. Se a troca não chegou lá, a senha atual continua valendo: confira a internet e tente de novo.';
+    // Marca velha: a provisória já foi trocada em outro sistema, e a equipe-auth passou a conferir a atual.
+    else if (senhaAtualErrada && obrigado) msg = causa + ' Se você já trocou a senha provisória em outro sistema, digite no primeiro campo a senha que criou lá.';
+    else if (falha.status === 404) msg = causa + ' Seu acesso ao V.O.F. não tem senha própria: troque a senha no Painel, no seu nome, Minha conta.';
+    if (naTela) erroSenha(msg, 'sn-atual');
+    else toast('A senha não foi trocada. ' + msg, 'erro');
+    return;
+  }
+  // A troca valeu: a marca de provisória sai da sessão e do aparelho.
+  ESTADO.sessao = Object.assign({}, ESTADO.sessao);
+  delete ESTADO.sessao.trocarSenha;
+  STORE.ajustarUser({ trocarSenha: false });
+  const avisos = (r && Array.isArray(r.avisos) ? r.avisos : []).filter(a => typeof a === 'string' && a.trim());
+  if (!avisos.length) {
+    toast('Senha trocada. Use a nova da próxima vez que entrar.', 'sucesso');
+    if (ESTADO.rota.nome === 'senha') location.hash = '#/';
+    return;
+  }
+  const faltou = 'Senha trocada no V.O.F. Estes lugares não confirmaram, e neles a senha antiga pode continuar valendo: ' + avisos.join('; ');
+  if (!naTela) { toast(faltou, 'erro'); return; }
+  // Com aviso, a tela fica: a pessoa precisa ler onde a nova não chegou. O
+  // aviso toma o lugar do formulário e do recado de antes da troca.
+  const f = $('#form-senha');
+  $$('#app [data-recado]').forEach(el => el.remove());
+  f.insertAdjacentHTML('beforebegin', avisoHTML(faltou, 'amarelo') + '<div class="acoes"><a class="botao" href="#/" data-seguir>Continuar</a></div>');
+  f.remove();
 }
 
 /* ══════════ início ══════════ */
@@ -1989,13 +2151,18 @@ function lerRota() {
 const ROTAS = {
   inicio: renderInicio, metodo: renderMetodo, dinamicas: renderDinamicas, turmas: renderTurmas, diagnostico: renderDiagnostico,
   plano: renderPlano, apostila: renderApostila, apresentacao: renderApresentacao, palco: renderPalco, controle: renderControle,
+  senha: renderTrocarSenha,
 };
-const TITULOS = { inicio: 'Início', metodo: 'Método', dinamicas: 'Dinâmicas e APN', turmas: 'Turmas e empresas', diagnostico: 'Diagnóstico', plano: 'Plano de 90 dias', apostila: 'Apostila', apresentacao: 'Apresentação', controle: 'Controle da sala' };
+const TITULOS = { inicio: 'Início', metodo: 'Método', dinamicas: 'Dinâmicas e APN', turmas: 'Turmas e empresas', diagnostico: 'Diagnóstico', plano: 'Plano de 90 dias', apostila: 'Apostila', apresentacao: 'Apresentação', controle: 'Controle da sala', senha: 'Trocar minha senha' };
 function renderApp(opcoes) {
   const app = $('#app'); if (!app) return;
   const antes = ESTADO.rota.nome + '/' + ESTADO.rota.arg;
   lerRota();
   if (!ESTADO.sessao) { pararPoll(); renderLogin(app); return; }
+  // Senha provisória: enquanto ela não for trocada, o app inteiro fica atrás
+  // da troca. Vem antes de tudo (palco e controle inclusive), para nenhuma
+  // área chegar a desenhar nem a pedir dado da sala.
+  if (ESTADO.sessao.trocarSenha === true && ESTADO.rota.nome !== 'senha') { pararPoll(); location.hash = '#/senha'; return; }
   const agora = ESTADO.rota.nome + '/' + ESTADO.rota.arg;
   if (ESTADO.poll && ESTADO.poll.chave !== ESTADO.rota.nome + '/' + normalizarCodigo(ESTADO.rota.arg)) pararPoll();
   if (ESTADO.rota.nome !== 'palco') { document.body.classList.remove('modo-palco'); if (antes.indexOf('palco/') === 0) sairTelaCheia(); }
