@@ -1,0 +1,66 @@
+# Publica o Método V.O.F. no GitHub Pages a cada push na main.
+#
+# App vanilla, sem build: roda os testes e publica SÓ os arquivos públicos do
+# site. supabase/, tests/, scripts/ e node_modules não vão para o ar.
+# Depois de copiar, confere se cada arquivo que a página pede foi junto: deploy
+# por lista nominal já publicou site com arquivo faltando e o Actions verde.
+#
+# Nenhum segredo entra aqui: o backend é o Supabase e quem autoriza é o crachá.
+# LEMBRETE: publicar a TELA não publica a function. O vof-sync sobe por
+# supabase/publicar-functions.sh, e é conferido no ar depois.
+name: Deploy (GitHub Pages)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci --ignore-scripts
+
+      - name: Testes (casca, método e servidor)
+        run: npm test
+
+      - name: Separar somente os arquivos públicos do site
+        run: |
+          mkdir -p dist
+          cp index.html config.js auth.js store.js metodo.js app.js styles.css metodo.css sw.js manifest.webmanifest dist/
+          cp favicon.svg icone-192.png icone-512.png dist/
+          cp -R assets dist/
+          touch dist/.nojekyll
+
+      - name: Conferir que tudo o que a página pede foi junto
+        run: node scripts/conferir-publicacao.mjs dist
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

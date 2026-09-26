@@ -1,0 +1,39 @@
+# Confere o código a cada envio e a cada pull request, ANTES de o Pages
+# publicar. O erro aparece no GitHub, com o app no ar intacto.
+name: Verificar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Sintaxe dos scripts do app
+        run: |
+          for f in config.js auth.js store.js metodo.js app.js sw.js; do
+            node --check "$f"
+          done
+
+      - run: npm ci --ignore-scripts
+
+      - name: Testes (casca, método e servidor)
+        run: npm test
+
+      # O repositório é PÚBLICO. Crachá (JWT) ou token do Supabase escrito em
+      # arquivo é segredo publicado: a varredura para o envio aqui.
+      - name: Nenhum segredo no repositório
+        run: |
+          if grep -rIlE "eyJ[A-Za-z0-9_-]{15,}\.eyJ[A-Za-z0-9_-]{15,}|sbp_[A-Za-z0-9]{20,}|sb_secret_[A-Za-z0-9_-]{10,}" --exclude-dir=node_modules --exclude-dir=.git . ; then
+            echo "Possível segredo no repositório (arquivos acima). Tire e gire a credencial."
+            exit 1
+          fi

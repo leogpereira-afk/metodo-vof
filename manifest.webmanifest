@@ -1,0 +1,17 @@
+{
+  "name": "Método V.O.F.",
+  "short_name": "V.O.F.",
+  "description": "Venda, Operação e Finanças, sustentadas por Pessoas e Gestores. Sistema dos facilitadores.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#102b40",
+  "theme_color": "#102b40",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "./icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "./favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
