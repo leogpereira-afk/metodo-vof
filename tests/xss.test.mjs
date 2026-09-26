@@ -378,7 +378,7 @@ test('XSS: cada campo de cada coleção, do APN, do crachá e do hash passa por 
   for (const h of [carga('hash.rota'), '__proto__', 'constructor', 'toString', 'hasOwnProperty', '__defineGetter__']) {
     await p.irPara('#/' + enc(h));
     conferir(p, 'rota do hash: ' + h.slice(0, 20));
-    assert.ok(p.document.querySelector('.boas-vindas'), 'rota desconhecida cai no início: ' + h.slice(0, 20));
+    assert.ok(p.document.querySelector('.proposito'), 'rota desconhecida cai no início: ' + h.slice(0, 20));
   }
 
   // Além dos campos que a tela nunca mostra: o link javascript: que o store
@@ -451,7 +451,7 @@ test('rota com nome de propriedade de objeto (__proto__, constructor) cai no in�
   for (const h of ['__proto__', 'constructor', 'toString', 'valueOf', '__defineGetter__']) {
     await p.irPara('#/turmas');
     await p.irPara('#/' + h);
-    assert.ok(p.document.querySelector('.boas-vindas'), h + ' desenha o início');
+    assert.ok(p.document.querySelector('.proposito'), h + ' desenha o início');
     assert.equal(p.document.title, 'Início · Método V.O.F.', h + ' não põe código de função no título');
   }
 });
@@ -600,7 +600,7 @@ test('texto com chave "toString" gravado direto na porta não derruba as telas d
   p.sandbox.console = Object.assign({}, console, { error: (...a) => erros.push(a.map(String).join(' ')) });
   await assentar();
   const telas = [
-    ['#/', '.boas-vindas'], ['#/turmas', '#lista-turmas .linha'], ['#/diagnostico', '#diag-painel'], ['#/diagnostico/d-quebra', '[data-diag-form]'],
+    ['#/', '.proposito'], ['#/turmas', '#lista-turmas .linha'], ['#/diagnostico', '#diag-painel'], ['#/diagnostico/d-quebra', '[data-diag-form]'],
     ['#/diagnostico/d-rascunho', '[data-diag-form]'], ['#/plano', '#miolo .linha-link'], ['#/plano/t-quebra', '#plano-marcos .marco'], ['#/dinamicas', '.apn-item'],
   ];
   for (const [h, seletor] of telas) {

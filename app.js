@@ -66,6 +66,7 @@ const ESTADO = {
   rota: { nome: 'inicio', arg: '' },
   sync: { estado: 'nunca', erro: '' },
   metodoNo: null,
+  metodoCtl: null,
   apn: { secao: 'dinamicas', pilar: '', busca: '', modulo: '', erro: '' },
   turmas: { status: '' },
   diag: { alvo: '', rascunho: null },
@@ -160,6 +161,7 @@ function encerrarSessao(recado) {
   ESTADO.sessao = null;
   ESTADO.recadoLogin = recado || '';
   ESTADO.metodoNo = null;
+  ESTADO.metodoCtl = null;
   ESTADO.diag.rascunho = null;
   ESTADO.plano.rascunhos = {};
   ESTADO.sync = { estado: 'nunca', erro: '' };
@@ -327,6 +329,77 @@ function nomeAlvo(tipo, id) {
 }
 const porDataDesc = (a, b) => String(b.data || '').localeCompare(String(a.data || '')) || String(b.atualizadoEm || '').localeCompare(String(a.atualizadoEm || ''));
 
+// O propósito que abre a tela inicial. Texto aprovado pelo Léo em 26/09/2026;
+// cada ideia vem do caderno e da arquitetura do método: o slogan (arquitetura
+// p. 4, caderno p. 179), heroísmo e sistema (arquitetura p. 22 e 29), a carta
+// de 2030 (caderno p. 15), clareza e reconhecimento (caderno p. 60 e 67), o
+// caixa que avisa antes (caderno p. 49 e 54), a promessa possível (caderno
+// p. 32), uma restrição por vez em 90 dias (caderno p. 4 e 17), o fechamento
+// de toda conversa (caderno p. 86) e as decisões 4D (caderno p. 97).
+// Não reescrever sem o Léo: o teste da tela inicial confere palavra por palavra.
+const PROPOSITO = Object.freeze({
+  titulo: 'Pessoas que performam. Negócios que prosperam.',
+  texto: 'Cada turma trabalha para que a empresa deixe de funcionar por heroísmo e passe a funcionar como sistema: o dono com tempo para a própria vida, a equipe que sabe o que se espera dela e é reconhecida, o caixa que avisa antes e o cliente que recebe o combinado. Uma restrição por vez, em ciclos de 90 dias.',
+  chamada: 'Comece pelo que já foi combinado: confira os próximos marcos e feche cada decisão com dono, data e dado.',
+});
+// O título tem duas frases: a segunda ganha a cor do método, em linha própria.
+function htmlTituloProposito(t) {
+  const s = String(t || ''), i = s.indexOf('. ');
+  if (i < 1 || i + 2 >= s.length) return esc(s);
+  return esc(s.slice(0, i + 1)) + ' <em>' + esc(s.slice(i + 2)) + '</em>';
+}
+
+// Frase do dia: uma das frases dos módulos, escolhida pelo dia do ano no
+// horário de São Paulo, qualquer que seja o fuso do aparelho. A mesma frase
+// vale o dia inteiro e muda à meia-noite de Brasília para todo mundo.
+const FUSO_DA_CASA = 'America/Sao_Paulo';
+let formatoDiaDaCasa = null;
+function diaDoAnoNaCasa(agora) {
+  const d = agora instanceof Date && !isNaN(agora.getTime()) ? agora : new Date();
+  let a = NaN, m = NaN, dia = NaN;
+  try {
+    if (!formatoDiaDaCasa) formatoDiaDaCasa = new Intl.DateTimeFormat('en-US', { timeZone: FUSO_DA_CASA, year: 'numeric', month: 'numeric', day: 'numeric' });
+    const partes = formatoDiaDaCasa.formatToParts(d);
+    const v = tipo => Number((partes.find(x => x.type === tipo) || {}).value);
+    a = v('year'); m = v('month'); dia = v('day');
+  } catch {}
+  // Navegador sem a tabela de fusos: vale o dia do aparelho, que no Brasil é o mesmo.
+  if (![a, m, dia].every(Number.isFinite)) { a = d.getFullYear(); m = d.getMonth() + 1; dia = d.getDate(); }
+  return Math.round((Date.UTC(a, m - 1, dia) - Date.UTC(a, 0, 1)) / 86400000) + 1;
+}
+function modulosComFrase() {
+  const m = metodo();
+  const lista = m && Array.isArray(m.MODULOS) ? m.MODULOS : [];
+  return lista.filter(x => x && typeof x.id === 'string' && x.id && typeof x.frase === 'string' && x.frase.trim());
+}
+function fraseDoDia(agora) {
+  const lista = modulosComFrase();
+  if (!lista.length) return null;
+  const dia = diaDoAnoNaCasa(agora);
+  return { dia, modulo: lista[(dia - 1) % lista.length] };
+}
+function htmlFraseDoDia(fd) {
+  if (!fd) return '';
+  const mod = fd.modulo, titulo = String(mod.titulo || 'Módulo do método');
+  return '<aside class="frase-dia" aria-labelledby="frase-dia-rotulo">' +
+    '<p class="frase-dia-rotulo" id="frase-dia-rotulo">Frase do dia</p>' +
+    '<blockquote class="frase-dia-texto" data-frase-dia="' + esc(mod.id) + '"><p>' + esc(mod.frase) + '</p></blockquote>' +
+    '<p class="frase-dia-modulo">' + (mod.ordem ? 'Módulo ' + esc(mod.ordem) + ' · ' : '') + esc(titulo) + '</p>' +
+    '<a class="frase-dia-link" href="#/metodo/' + encodeURIComponent(mod.id) + '" aria-label="Abrir o módulo ' + esc(titulo) + ' no Método">Abrir o módulo</a>' +
+    '</aside>';
+}
+// A chamada promete "confira os próximos marcos": o botão leva ao cartão.
+// Rola sem mexer no endereço (#marcos seria lido como rota e redesenharia a
+// tela) e põe o foco no título do cartão, para o teclado e o leitor de tela.
+function irParaMarcos() {
+  const cartao = $('#cartao-marcos'); if (!cartao) return;
+  let suave = true;
+  try { suave = !(typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch {}
+  if (typeof cartao.scrollIntoView === 'function') cartao.scrollIntoView({ behavior: suave ? 'smooth' : 'auto', block: 'start' });
+  const titulo = $('#marcos-titulo');
+  if (titulo && typeof titulo.focus === 'function') { try { titulo.focus({ preventScroll: true }); } catch { titulo.focus(); } }
+}
+
 function renderInicio(app) {
   const turmas = STORE.col('turmas');
   const andamento = ordenarPorNome(turmas.filter(t => t.status === 'em andamento'));
@@ -338,7 +411,7 @@ function renderInicio(app) {
       '<li><a href="#/plano/' + encodeURIComponent(t.id) + '"><b>' + esc(t.nome) + '</b><small>Nível ' + esc(t.nivel || 1) + (t.inicio ? ' · início ' + fmtData(t.inicio) : '') + (t.empresaId ? ' · ' + esc(nomeAlvo('empresa', t.empresaId)) : '') + '</small></a></li>').join('') + '</ul>'
       : vazioHonesto('Nenhuma turma em andamento.')) +
     '<a class="link-seta" href="#/turmas">Ver turmas e empresas</a></section>';
-  const cartaoMarcos = '<section class="cartao"><h2>Próximos marcos</h2>' +
+  const cartaoMarcos = '<section class="cartao" id="cartao-marcos" aria-labelledby="marcos-titulo"><h2 id="marcos-titulo" tabindex="-1">Próximos marcos</h2>' +
     (marcos.length ? '<ul class="lista-simples">' + marcos.map(x =>
       '<li><a href="#/plano/' + encodeURIComponent(x.turma.id) + '"><b>' + esc(x.marco.acao || 'Ação sem descrição') + '</b><small>' + esc(x.turma.nome) + ' · ' + esc(x.marco.fase || '') +
       (x.prazo ? ' · até ' + fmtData(x.prazo) : ' · sem Dia 0 definido') + '</small>' + (x.atrasado ? '<span class="selo vermelho">atrasado</span>' : '') + '</a></li>').join('') + '</ul>'
@@ -352,16 +425,25 @@ function renderInicio(app) {
     }).join('') + '</ul>'
       : vazioHonesto('Nenhum diagnóstico salvo ainda.')) +
     '<a class="link-seta" href="#/diagnostico">Ver diagnósticos</a></section>';
+  const frase = htmlFraseDoDia(fraseDoDia());
+  const ola = primeiroNome(ESTADO.sessao.nome);
   app.innerHTML = pagina('inicio',
-    '<section class="boas-vindas"><h1>Olá, ' + esc(primeiroNome(ESTADO.sessao.nome)) + '.</h1>' +
-    '<p>Venda, Operação e Finanças, sustentadas por Pessoas e Gestores. Uma restrição por vez, em ciclos de 90 dias.</p>' +
+    '<section class="proposito' + (frase ? ' com-frase' : '') + '" aria-labelledby="proposito-titulo">' +
+    '<div class="proposito-principal">' +
+    '<p class="proposito-ola">' + (ola ? 'Olá, ' + esc(ola) + '.' : 'Olá.') + '</p>' +
+    '<h1 class="proposito-titulo" id="proposito-titulo">' + htmlTituloProposito(PROPOSITO.titulo) + '</h1>' +
+    '<p class="proposito-texto">' + esc(PROPOSITO.texto) + '</p>' +
+    '<div class="proposito-chamada"><p>' + esc(PROPOSITO.chamada) + '</p>' +
+    '<button type="button" class="botao" data-ir-marcos>Conferir os próximos marcos</button></div>' +
+    '</div>' + frase + '</section>' +
     (m ? '' : avisoHTML('O conteúdo do método (metodo.js) não carregou. Turmas, diagnósticos e planos continuam funcionando; recarregue a página para trazer o método.', 'amarelo')) +
-    '<div class="acoes"><a class="botao" href="#/apresentacao">Abrir a apresentação</a>' +
+    '<div class="acoes inicio-acoes"><a class="botao suave" href="#/apresentacao">Abrir a apresentação</a>' +
     (podeEditar() ? '<a class="botao suave" href="#/diagnostico/novo">Novo diagnóstico</a><button type="button" class="botao suave" data-nova-turma>Nova turma</button>' : '') +
-    '</div></section>' +
+    '</div>' +
     '<div class="resumo-grade">' + cartaoTurmas + cartaoMarcos + cartaoDiag + '</div>');
   ligarCab();
   const nt = $('[data-nova-turma]'); if (nt) nt.addEventListener('click', () => abrirFormTurma(null));
+  const im = $('[data-ir-marcos]'); if (im) im.addEventListener('click', irParaMarcos);
 }
 
 /* ══════════ método ══════════ */
@@ -387,14 +469,38 @@ function renderMetodo(app) {
     const no = document.createElement('div');
     no.className = 'metodo-raiz';
     try {
-      m.render(no, { abrirComplemento, abrirApostila: irParaApostila });
+      const ctl = m.render(no, { abrirComplemento, abrirApostila: irParaApostila });
       ESTADO.metodoNo = no;
+      ESTADO.metodoCtl = ctl && typeof ctl.selecionar === 'function' ? ctl : null;
     } catch (e) {
       alvo.innerHTML = tituloArea('Método V.O.F.') + avisoHTML('Não consegui desenhar o método: ' + (e && e.message ? e.message : 'erro desconhecido'), 'vermelho');
       return;
     }
   }
   alvo.appendChild(ESTADO.metodoNo);
+  if (ESTADO.rota.arg) abrirModuloDoMetodo(ESTADO.rota.arg, alvo);
+}
+// #/metodo/<id> abre o módulo como o cartão dele abre: a aba do nível fica
+// selecionada por trás e a sala mostra o módulo. Vem da frase do dia da Início.
+function abrirModuloDoMetodo(id, alvo) {
+  const m = metodo();
+  const mod = (m && Array.isArray(m.MODULOS) ? m.MODULOS : []).find(x => x && x.id === id);
+  const lista = m && Array.isArray(m.APRESENTACAO) ? m.APRESENTACAO : [];
+  const indice = mod ? lista.findIndex(x => x && x.id === mod.id) : -1;
+  if (!mod) {
+    alvo.insertAdjacentHTML('afterbegin', avisoHTML('Não encontrei o módulo "' + id + '" no método. Escolha um módulo nas abas abaixo.', 'amarelo'));
+    return;
+  }
+  if (indice < 0 || typeof m.abrirApresentacao !== 'function') {
+    alvo.insertAdjacentHTML('afterbegin', avisoHTML('O módulo "' + (mod.titulo || id) + '" existe, mas a sala do método não abriu. Use o cartão dele nas abas abaixo.', 'amarelo'));
+    return;
+  }
+  try { if (ESTADO.metodoCtl) ESTADO.metodoCtl.selecionar(mod.nivel === 2 ? 'nivel2' : 'nivel1'); } catch {}
+  // Uma sala já aberta seria só levada ao slide e, logo depois, fechada pela
+  // própria troca de endereço: fecha e abre de novo, já no módulo.
+  try { if (typeof m.apresentacaoAtual === 'function' && m.apresentacaoAtual() && typeof m.fecharApresentacao === 'function') m.fecharApresentacao(); } catch {}
+  try { m.abrirApresentacao(indice); }
+  catch (e) { alvo.insertAdjacentHTML('afterbegin', avisoHTML('Não consegui abrir o módulo: ' + (e && e.message ? e.message : 'erro desconhecido'), 'vermelho')); }
 }
 
 /* ══════════ dinâmicas e APN ══════════ */

@@ -16,7 +16,7 @@ import { conferir } from '../scripts/conferir-publicacao.mjs';
 
 const TRAVESSAO = String.fromCharCode(8212), MEIA_RISCA = String.fromCharCode(8211);
 const ARQUIVOS_DA_CASCA = ['index.html', 'config.js', 'auth.js', 'store.js', 'app.js', 'styles.css', 'sw.js', 'manifest.webmanifest', 'favicon.svg', 'package.json',
-  '.github/workflows/deploy.yml', '.github/workflows/verificar.yml', 'scripts/conferir-publicacao.mjs', 'tests/casca.test.mjs', 'tests/helpers/casca.mjs'];
+  '.github/workflows/deploy.yml', '.github/workflows/verificar.yml', 'scripts/conferir-publicacao.mjs', 'tests/casca.test.mjs', 'tests/inicio.test.mjs', 'tests/helpers/casca.mjs'];
 
 const DADOS = () => ({
   turmas: [
@@ -773,13 +773,13 @@ test('index.html carrega config, auth, store, metodo e app nessa ordem, com cami
   assert.ok(refs.includes('./metodo.css') && refs.includes('./styles.css'));
 });
 
-test('manifesto e service worker: caminhos relativos, cache vof-shell-v1', () => {
+test('manifesto e service worker: caminhos relativos, cache vof-shell-v2', () => {
   const man = JSON.parse(ler('manifest.webmanifest'));
   assert.equal(man.start_url, './');
   assert.equal(man.scope, './');
   for (const i of man.icons) assert.match(i.src, /^\.\//);
   const sw = ler('sw.js');
-  assert.match(sw, /const CACHE = 'vof-shell-v1'/);
+  assert.match(sw, /const CACHE = 'vof-shell-v2'/);
   const shell = /const SHELL\s*=\s*\[([\s\S]*?)\]/.exec(sw)[1];
   for (const m of shell.matchAll(/'([^']+)'/g)) assert.match(m[1], /^\.\//);
 });

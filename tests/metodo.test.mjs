@@ -374,6 +374,18 @@ test('slides() devolve a lista plana para a casca', () => {
   assert.match(s[4].visualHTML, /O motor do método/);
 });
 
+test('rótulo do slide diz o nível uma vez só (a frase do dia abre direto nos módulos do Nível 2)', () => {
+  const { V } = montar();
+  const porId = Object.fromEntries(V.slides().map(x => [x.id, x.rotulo]));
+  assert.equal(porId.gestores2, 'Nível 2 · Avançado');
+  assert.equal(porId.dono, 'Nível 2 · Dono');
+  assert.equal(porId.dinamicas, 'Nível 2 · Integração');
+  assert.equal(porId.arquitetura, 'Nível 1 · Fundamento');
+  assert.equal(porId.venda, 'Nível 1 · V · Venda');
+  assert.match(porId['intro-vof'], /^Abertura · /);
+  for (const [id, r] of Object.entries(porId)) assert.doesNotMatch(r, /Nível \d.*Nível \d/, id + ': ' + r);
+});
+
 /* ---------------- o que vem da casca ---------------- */
 test('apostila: sem a casca avisa a aba Apostila; com a casca chama abrirApostila; o PDF morto sumiu', () => {
   const sem = montar();

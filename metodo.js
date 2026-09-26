@@ -516,7 +516,8 @@
     const etapas = ciclo ? ETAPAS.map(x => [x[1], x[2]]) : mod.evidencias.map(x => [x, '']);
     return `<section class="vof-slide-map${ciclo ? ' vof-slide-map-cycle' : ''}" aria-label="${ciclo ? 'As cinco etapas do método' : 'O que observar na prática'}"><span class="vof-eyebrow">${ciclo ? 'O motor do método' : 'O que observar na prática'}</span><ol>${etapas.map(([titulo, desc], i) => `<li><span aria-hidden="true">${dois(i + 1)}</span><div><b>${esc(titulo)}</b>${desc ? `<p>${esc(desc)}</p>` : ''}</div></li>`).join('')}</ol></section>`;
   }
-  const rotuloSlide = mod => mod.tipo === 'abertura' ? 'Abertura · ' + mod.grupo : 'Nível ' + mod.nivel + ' · ' + mod.grupo;
+  // Grupo do Nível 2 já diz o nível ("Nível 2 · Avançado"): repetir dava "Nível 2 · Nível 2 · Avançado".
+  const rotuloSlide = mod => mod.tipo === 'abertura' ? 'Abertura · ' + mod.grupo : (/^Nível \d/.test(mod.grupo) ? mod.grupo : 'Nível ' + mod.nivel + ' · ' + mod.grupo);
 
   /* ---------------- o que vem da casca ---------------- */
   let opcoesAtuais = {};

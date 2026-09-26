@@ -9,7 +9,7 @@
 //
 // A API NUNCA passa por aqui (supabase.co vai direto) e só o GET do próprio
 // site é tratado: fontes e qualquer outro endereço seguem o caminho normal.
-const CACHE = 'vof-shell-v1';
+const CACHE = 'vof-shell-v2';
 const SHELL = ['./', './index.html', './styles.css', './metodo.css', './config.js', './auth.js',
   './store.js', './metodo.js', './app.js', './manifest.webmanifest', './favicon.svg', './icone-192.png', './icone-512.png',
   // As duas marcas da capa e da sala: sem elas, fora do ar a capa perde a logo.

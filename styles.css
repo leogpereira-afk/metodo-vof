@@ -21,6 +21,8 @@
   --perigo: #a3342a; --perigo-cl: #fbe9e7;
   --info: #22567a; --info-cl: #e7eff4;
   --campo-borda: #9aa7b1;
+  /* texto sobre o azul-marinho (cabeçalho e frase do dia) */
+  --sobre-navy: #dce8ef; --sobre-navy-suave: #a9cadb; --ouro-claro: #e2bb82;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
@@ -90,9 +92,51 @@ a { color: var(--vof-blue); }
 .titulo-area p { color: var(--suave); max-width: 72ch; }
 .voltar { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; text-decoration: none; }
 .voltar::before { content: "\2190"; margin-right: 6px; }
-.boas-vindas { margin: 4px 0 20px; }
-.boas-vindas h1 { font-size: clamp(28px, 3.6vw, 38px); margin-bottom: 4px; }
-.boas-vindas p { color: var(--suave); max-width: 70ch; }
+
+/* ---------- início: o propósito e a frase do dia ----------
+   Um bloco só, antes dos cartões. Empilha por padrão (celular); a frase do
+   dia vai para o lado só quando existe e há largura para as duas colunas. */
+.proposito {
+  position: relative; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px;
+  background: var(--card); border: 1px solid var(--linha); border-radius: 18px; box-shadow: var(--sombra);
+  padding: clamp(22px, 3.4vw, 36px) clamp(18px, 3.4vw, 36px); margin: 4px 0 16px;
+}
+.proposito::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: linear-gradient(90deg, var(--vof-blue), var(--vof-teal) 55%, var(--vof-gold)); }
+.proposito-principal { min-width: 0; }
+.proposito-ola { margin: 0 0 10px; color: var(--suave); font-size: 15px; font-weight: 600; }
+.proposito-titulo { margin: 0 0 14px; font-size: clamp(29px, 4.4vw, 46px); line-height: 1.12; color: var(--vof-navy); overflow-wrap: break-word; }
+.proposito-titulo em { display: block; font-style: normal; color: var(--vof-teal); }
+.proposito-texto { margin: 0 0 18px; max-width: 62ch; font-size: 17px; line-height: 1.65; color: var(--tinta); }
+.proposito-chamada {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; max-width: 72ch;
+  padding: 14px 16px; border-radius: 12px; background: var(--vof-paper); border-left: 4px solid var(--vof-teal);
+}
+.proposito-chamada p { flex: 1 1 260px; min-width: 0; margin: 0; font-weight: 600; color: var(--vof-navy); }
+.proposito-chamada .botao { flex: 0 1 auto; }
+.frase-dia { display: flex; flex-direction: column; min-width: 0; padding: 22px 22px 12px; border-radius: 14px; background: var(--vof-navy); color: var(--sobre-navy); }
+.frase-dia-rotulo { margin: 0 0 8px; font-size: 12.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ouro-claro); }
+.frase-dia-texto { flex: 1; display: flex; flex-direction: column; justify-content: center; margin: 0; }
+.frase-dia-texto::before { content: "\201C"; content: "\201C" / ""; display: block; height: .5em; font: 600 52px/1 Fraunces, Georgia, serif; color: var(--ouro-claro); }
+.frase-dia-texto p { margin: 0; font: 500 clamp(20px, 2.1vw, 24px)/1.42 Fraunces, Georgia, serif; color: #fff; overflow-wrap: break-word; }
+.frase-dia-modulo { margin: 16px 0 0; font-size: 13.5px; color: var(--sobre-navy-suave); overflow-wrap: anywhere; }
+/* O link é bloco de texto, não flex: dentro de flex a seta vira item e herda o
+   sublinhado (um traço solto sob ela). Como inline-block num texto, não herda.
+   10 + 24 + 10 = 44 px de alvo. */
+.frase-dia-link {
+  display: inline-block; align-self: flex-start; min-height: 44px; padding: 10px 0; line-height: 24px; color: #fff; font-weight: 600;
+  text-decoration: underline; text-decoration-color: rgba(255, 255, 255, .45); text-underline-offset: 4px;
+}
+.frase-dia-link::after { content: "\2192"; display: inline-block; margin-left: 6px; }
+.frase-dia-link:hover { text-decoration-color: currentColor; }
+.frase-dia :focus-visible { outline-color: var(--ouro-claro); }
+.inicio-acoes { margin: 0 0 18px; }
+#cartao-marcos { scroll-margin-top: 16px; }
+#marcos-titulo:focus { outline: none; }
+#marcos-titulo:focus-visible { outline: 3px solid var(--vof-blue); outline-offset: 2px; }
+@media (min-width: 900px) {
+  .proposito.com-frase { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 32px; align-items: stretch; }
+}
+
 .cartao { background: var(--card); border: 1px solid var(--linha); border-radius: var(--r); padding: 18px; margin-bottom: 16px; box-shadow: var(--sombra); min-width: 0; }
 .cartao.destaque { border-left: 5px solid var(--vof-teal); }
 .cartao-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
