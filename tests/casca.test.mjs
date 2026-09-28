@@ -825,9 +825,15 @@ test('a publicação leva tudo o que a página pede (simula o cp do deploy.yml)'
   } finally { rmSync(destino, { recursive: true, force: true }); }
 });
 
-test('package.json: "test" roda a pasta tests/ e usa o linkedom da Central', () => {
+test('package.json: "test" roda todos os testes de tests/ e usa o linkedom da Central', () => {
   const pkg = JSON.parse(ler('package.json'));
-  assert.equal(pkg.scripts.test, 'node --test tests/');
+  // Glob e não a pasta: no Node 22, "node --test tests/" procura um módulo
+  // chamado tests e não roda teste nenhum. Sem aspas, o sh da CI (Node 20)
+  // expande o glob; no Node 22 o próprio --test também expande.
+  assert.equal(pkg.scripts.test, 'node --test tests/*.test.mjs');
+  // Teste com outra extensão ficaria fora do glob sem ninguém perceber.
+  const fora = readdirSync(new URL('tests/', RAIZ)).filter((f) => /\.test\./.test(f) && !f.endsWith('.test.mjs'));
+  assert.deepEqual(fora, []);
   // Na máquina do Léo confere contra a Central; na CI (sem a pasta vizinha) vale a versão fixada.
   let versao = '0.18.12';
   try { versao = JSON.parse(readFileSync(new URL('../vida-leo/package.json', RAIZ), 'utf8')).devDependencies.linkedom; } catch {}
