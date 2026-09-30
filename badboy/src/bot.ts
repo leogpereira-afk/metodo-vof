@@ -1,8 +1,8 @@
 import { Bot, InlineKeyboard, type Context } from "grammy";
-import type { Cerebro } from "./claude.js";
-import type { Config } from "./config.js";
-import { formatarResumo } from "./custo.js";
-import type { Memoria } from "./memoria.js";
+import type { Cerebro } from "./claude.ts";
+import type { Config } from "./config.ts";
+import { formatarResumo } from "./custo.ts";
+import type { Memoria } from "./memoria.ts";
 import {
   CANCELAR,
   codificarConfirmacao,
@@ -11,7 +11,7 @@ import {
   lerConfirmacao,
   mesPorExtenso,
   type AcaoIrreversivel,
-} from "./telegram-util.js";
+} from "./telegram-util.ts";
 
 const AJUDA = [
   "BadBoy às ordens. Mande mensagem normal para conversar.",
@@ -22,6 +22,15 @@ const AJUDA = [
   "/esquecer [número] — apaga um fato (pede confirmação)",
   "/limpar — apaga o histórico da conversa (pede confirmação)",
 ].join("\n");
+
+export const COMANDOS = [
+  { command: "custo", description: "Gasto do mês em tokens e dólares" },
+  { command: "lembrar", description: "Salvar um fato" },
+  { command: "fatos", description: "Listar os fatos salvos" },
+  { command: "esquecer", description: "Apagar um fato (com confirmação)" },
+  { command: "limpar", description: "Apagar o histórico (com confirmação)" },
+  { command: "ajuda", description: "O que eu sei fazer" },
+];
 
 const agoraS = () => Math.floor(Date.now() / 1000);
 

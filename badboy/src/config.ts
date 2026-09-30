@@ -1,5 +1,6 @@
-// Configuração lida SÓ de variáveis de ambiente. Nenhuma chave no código.
-// Falta algo obrigatório → o processo nem sobe, com a lista do que falta.
+// Configuração lida SÓ de variáveis de ambiente (secrets da Edge Function).
+// Nenhuma chave no código. Falta algo obrigatório → erro com a lista do que
+// falta. SUPABASE_URL e a chave secreta o Supabase injeta sozinho.
 
 const ESFORCOS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type Esforco = (typeof ESFORCOS)[number];
@@ -15,7 +16,9 @@ export interface Config {
   fuso: string;
 }
 
-export function lerConfig(env: NodeJS.ProcessEnv = process.env): Config {
+export type Ambiente = Record<string, string | undefined>;
+
+export function lerConfig(env: Ambiente): Config {
   const faltando: string[] = [];
   const obrigatoria = (nome: string): string => {
     const valor = env[nome]?.trim();
@@ -23,7 +26,7 @@ export function lerConfig(env: NodeJS.ProcessEnv = process.env): Config {
     return valor ?? "";
   };
 
-  const telegramToken = obrigatoria("TELEGRAM_BOT_TOKEN");
+  const telegramToken = extrairTokenTelegram(obrigatoria("TELEGRAM_BOT_TOKEN"));
   const donoIdTexto = obrigatoria("TELEGRAM_DONO_ID");
   const anthropicApiKey = obrigatoria("ANTHROPIC_API_KEY");
   const supabaseUrl = obrigatoria("SUPABASE_URL");
@@ -53,4 +56,16 @@ export function lerConfig(env: NodeJS.ProcessEnv = process.env): Config {
     supabaseChave,
     fuso: env.FUSO?.trim() || "America/Sao_Paulo",
   };
+}
+
+const TOKEN_TELEGRAM = /\d{5,}:[A-Za-z0-9_-]{30,}/;
+
+// Token colado com sujeira: a mensagem inteira do @BotFather (texto + token)
+// ou o token partido por uma quebra de linha. Pega só "números:letras".
+export function extrairTokenTelegram(colado: string): string {
+  return (
+    TOKEN_TELEGRAM.exec(colado)?.[0] ??
+    TOKEN_TELEGRAM.exec(colado.replace(/\s+/g, ""))?.[0] ??
+    colado
+  );
 }

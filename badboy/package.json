@@ -1,13 +1,10 @@
 {
   "name": "badboy",
   "private": true,
-  "description": "BadBoy: agente pessoal no Telegram (Claude + Supabase).",
+  "description": "BadBoy: agente pessoal no Telegram (Claude + Supabase Edge Function).",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --env-file=.env src/index.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json && deno check src/edge.ts",
     "test": "tsx --test tests/*.test.ts"
   },
   "engines": {
