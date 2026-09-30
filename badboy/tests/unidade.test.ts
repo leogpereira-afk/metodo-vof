@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { lerConfig } from "../src/config.js";
-import { calcularCusto, custosDaResposta } from "../src/custo.js";
-import { JANELA_MIN, JANELA_PASSO, tamanhoJanela } from "../src/memoria.js";
+import { lerConfig } from "../src/config.ts";
+import { calcularCusto, custosDaResposta } from "../src/custo.ts";
+import { JANELA_MIN, JANELA_PASSO, tamanhoJanela } from "../src/memoria.ts";
 import {
   VALIDADE_CONFIRMACAO_S,
   codificarConfirmacao,
   dividirMensagem,
   lerConfirmacao,
-} from "../src/telegram-util.js";
+} from "../src/telegram-util.ts";
 
 test("janela do histórico: início só anda de passo em passo (cache estável)", () => {
   assert.equal(tamanhoJanela(0), 0);

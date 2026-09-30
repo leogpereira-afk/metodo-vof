@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Config } from "./config.js";
-import type { RegistroUso, ResumoMes } from "./custo.js";
+import type { Config } from "./config.ts";
+import type { RegistroUso, ResumoMes } from "./custo.ts";
 
 export type Papel = "user" | "assistant";
 

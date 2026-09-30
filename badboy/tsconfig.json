@@ -5,14 +5,14 @@
     "moduleResolution": "NodeNext",
     "lib": ["ES2023"],
     "types": ["node"],
-    "rootDir": "src",
-    "outDir": "dist",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "esModuleInterop": true,
-    "skipLibCheck": true,
-    "sourceMap": true
+    "skipLibCheck": true
   },
-  "include": ["src"]
+  "include": ["src", "tests"],
+  "exclude": ["src/edge.ts"]
 }

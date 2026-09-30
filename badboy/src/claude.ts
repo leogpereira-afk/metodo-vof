@@ -1,8 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { Config } from "./config.js";
-import { custosDaResposta, type RegistroUso } from "./custo.js";
-import type { Memoria, Mensagem } from "./memoria.js";
-import { INSTRUCOES_FIXAS, blocoVariavel } from "./prompt.js";
+import type { Config } from "./config.ts";
+import { custosDaResposta, type RegistroUso } from "./custo.ts";
+import type { Memoria, Mensagem } from "./memoria.ts";
+import { INSTRUCOES_FIXAS, blocoVariavel } from "./prompt.ts";
 
 type Msg = Anthropic.Beta.BetaMessageParam;
 

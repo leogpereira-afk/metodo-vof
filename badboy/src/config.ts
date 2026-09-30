@@ -1,5 +1,6 @@
-// Configuração lida SÓ de variáveis de ambiente. Nenhuma chave no código.
-// Falta algo obrigatório → o processo nem sobe, com a lista do que falta.
+// Configuração lida SÓ de variáveis de ambiente (secrets da Edge Function).
+// Nenhuma chave no código. Falta algo obrigatório → erro com a lista do que
+// falta. SUPABASE_URL e a chave secreta o Supabase injeta sozinho.
 
 const ESFORCOS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type Esforco = (typeof ESFORCOS)[number];
@@ -15,7 +16,9 @@ export interface Config {
   fuso: string;
 }
 
-export function lerConfig(env: NodeJS.ProcessEnv = process.env): Config {
+export type Ambiente = Record<string, string | undefined>;
+
+export function lerConfig(env: Ambiente): Config {
   const faltando: string[] = [];
   const obrigatoria = (nome: string): string => {
     const valor = env[nome]?.trim();
