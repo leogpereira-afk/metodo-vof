@@ -240,7 +240,9 @@ export async function gmailEnviar(db: SupabaseClient, entrada: unknown) {
   const dados = (await resp.json().catch(() => ({}))) as Record<string, unknown>;
   if (!resp.ok) {
     if (resp.status === 403) {
-      throw new Error("falta autorizar o envio: na Central do Léo, tela Drive, clique em Conectar e aceite o envio de e-mail");
+      throw new Error(
+        "falta autorizar o envio: na Central do Léo, tela Drive, toque em Desconectar o Drive e depois em Conectar o Google Drive, aceitando o envio de e-mail",
+      );
     }
     const erro = (dados.error as { message?: string } | undefined)?.message;
     throw new Error(`Google ${resp.status}${erro ? `: ${erro}` : ""}`);
