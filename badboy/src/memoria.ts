@@ -137,6 +137,15 @@ export class Memoria {
     if (error) throw new Error(`Supabase (registrar uso): ${error.message}`);
   }
 
+  // Consulta aos sistemas das empresas, só leitura: roda como donboy_leitor
+  // (sem senhas, tokens e configurações) e por GET, que o PostgREST executa
+  // em transação READ ONLY. A função no banco recusa qualquer outro caminho.
+  async consultarBanco(sql: string): Promise<unknown> {
+    const { data, error } = await this.db.rpc("badboy_consultar", { p_sql: sql }, { get: true });
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
   async resumoDoMes(fuso: string): Promise<ResumoMes> {
     const { data, error } = await this.db.rpc("badboy_resumo_custo_mes", { p_fuso: fuso }).single();
     if (error) throw new Error(`Supabase (resumo do mês): ${error.message}`);

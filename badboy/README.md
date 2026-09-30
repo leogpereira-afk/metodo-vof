@@ -23,6 +23,14 @@ Telegram ──webhook──▶ Edge Function badboy-telegram ──▶ Claude (
 - Aprende fatos sozinha (ferramenta `salvar_fato`) ou por `/lembrar`.
 - `/custo`, `/lembrar`, `/fatos`. `/esquecer` e `/limpar` só com **botão de
   confirmação**, que expira em 10 min.
+- **Documentos**: gera Word (.docx) ou PDF e manda no Telegram (`gerar_documento`).
+- **Lê os sistemas das empresas** (CRM, financeiro, obras, RH, laboratório),
+  **só leitura** (`ver_estrutura_banco`, `consultar_banco`). A consulta passa por
+  `donboy.consultar()` (migração `0002_donboy_leitura.sql`): roda como o papel
+  `donboy_leitor`, que só tem SELECT; recusa transação que não seja READ ONLY;
+  não enxerga senhas, tokens nem configurações (`*_cfg`, `ml_meta`,
+  `google_calendar_integrations`, `cmp_acesso`, senha de `ml_contas`, grupos
+  sensíveis do `dmd_kv`), nem os schemas `auth` e `vault`.
 
 ## Configuração (uma vez)
 
