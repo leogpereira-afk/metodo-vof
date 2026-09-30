@@ -67,7 +67,7 @@ function preparar(): Promise<Contexto> {
     const memoria = new Memoria(config);
     const sistemas = new Sistemas(memoria, config.urlPonte);
     const cerebro = new Cerebro(config, memoria, sistemas);
-    const bot = criarBot(config, memoria, cerebro);
+    const bot = criarBot(config, memoria, cerebro, sistemas);
     await bot.init();
     return { config, bot, memoria, sistemas, cerebro, segredo: await segredoWebhook(config.telegramToken) };
   })();

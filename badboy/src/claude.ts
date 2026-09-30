@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Config } from "./config.ts";
 import { custosDaResposta, type RegistroUso } from "./custo.ts";
 import { gerarDocumento, type Anexo, type Formato } from "./documentos.ts";
+import { validarEmail, type Email } from "./email.ts";
 import type { Memoria, Mensagem } from "./memoria.ts";
 import { INSTRUCOES_FIXAS, blocoVariavel } from "./prompt.ts";
 import { SISTEMAS, type Sistema, type Sistemas } from "./sistemas.ts";
@@ -139,6 +140,24 @@ const FERRAMENTAS: Anthropic.Beta.BetaToolUnion[] = [
     },
   },
   {
+    name: "preparar_email",
+    description:
+      "Prepara um e-mail para o dono enviar do Gmail dele. NÃO envia: logo depois da sua resposta ele vê o e-mail inteiro com um botão Enviar, e só o toque dele manda. Use quando ele pedir para mandar, responder ou encaminhar um e-mail. Para responder, passe em responder_a o id do e-mail original (de buscar_emails) e deixe o assunto vazio para manter o dele.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        para: { type: "array", items: { type: "string" }, description: "Endereços de e-mail dos destinatários, só o endereço." },
+        cc: { type: "array", items: { type: "string" }, description: "Endereços em cópia (lista vazia se não houver)." },
+        assunto: { type: "string", description: "Assunto. Vazio numa resposta, para manter o do e-mail original." },
+        corpo: { type: "string", description: "Texto completo do e-mail, pronto, em texto puro, com saudação e assinatura." },
+        responder_a: { type: "string", description: "Id do e-mail que está sendo respondido, ou vazio se for um e-mail novo." },
+      },
+      required: ["para", "cc", "assunto", "corpo", "responder_a"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "gerar_documento",
     description:
       "Gera um documento e o envia ao dono no Telegram, logo depois da sua resposta. Use quando ele pedir um documento: contrato, proposta, ata, carta, relatório, roteiro, checklist. Word (docx) quando ele for editar ou assinar depois; PDF quando for enviar pronto. Na dúvida, docx.",
@@ -182,6 +201,8 @@ export interface RespostaTurno {
   anexos: Anexo[];
   // O que ele consultou nos sistemas neste turno (vai para o histórico).
   consultas: string[];
+  // E-mails preparados, esperando o botão Enviar do dono.
+  emails: { pendenteId: number; email: Email }[];
 }
 
 // O histórico guarda só o texto das respostas, não as chamadas de ferramenta.
@@ -211,16 +232,18 @@ export class Cerebro {
   async responder(historico: Mensagem[], hoje: string): Promise<RespostaTurno> {
     const fatos = await this.memoria.listarFatos();
 
-    // Ordem do prefixo: ferramentas → instruções fixas (ponto de cache
-    // explícito) → fatos + data → conversa (cache automático no fim).
+    // Ordem do prefixo: ferramentas → instruções fixas → fatos + data →
+    // conversa. Instruções e fatos mudam pouco e ele escreve com intervalos
+    // de vários minutos: cache de 1 h neles. A conversa usa o automático.
     const system: Anthropic.Beta.BetaTextBlockParam[] = [
-      { type: "text", text: INSTRUCOES_FIXAS, cache_control: { type: "ephemeral" } },
-      { type: "text", text: blocoVariavel(fatos, hoje) },
+      { type: "text", text: INSTRUCOES_FIXAS, cache_control: { type: "ephemeral", ttl: "1h" } },
+      { type: "text", text: blocoVariavel(fatos, hoje), cache_control: { type: "ephemeral", ttl: "1h" } },
     ];
 
-    const messages: Msg[] = historico.map((m) => ({ role: m.papel, content: m.conteudo }));
+    const messages: Msg[] = juntarSeguidas(historico).map((m) => ({ role: m.papel, content: m.conteudo }));
     const usos: RegistroUso[] = [];
     const anexos: Anexo[] = [];
+    const emails: RespostaTurno["emails"] = [];
     const consultas: string[] = [];
     let fatosSalvos = 0;
     // Blocos de respostas pausadas pelo servidor (pesquisa longa): a resposta
@@ -255,6 +278,7 @@ export class Cerebro {
           fatosSalvos,
           anexos,
           consultas,
+          emails,
         };
       }
 
@@ -271,7 +295,7 @@ export class Cerebro {
       if (resposta.stop_reason !== "tool_use") {
         const texto = extrairTexto([...pausado, ...resposta.content]);
         const cortada = resposta.stop_reason === "max_tokens" ? "\n\n(resposta cortada no limite de tamanho)" : "";
-        return { texto: (texto || "(sem resposta)") + cortada, usos, fatosSalvos, anexos, consultas };
+        return { texto: (texto || "(sem resposta)") + cortada, usos, fatosSalvos, anexos, consultas, emails };
       }
 
       // Volta de ferramenta: devolve o turno do assistente sem alterar nada
@@ -282,7 +306,7 @@ export class Cerebro {
       const resultados: Anthropic.Beta.BetaToolResultBlockParam[] = [];
       for (const bloco of resposta.content) {
         if (bloco.type !== "tool_use") continue;
-        resultados.push(await this.executarFerramenta(bloco, anexos, consultas));
+        resultados.push(await this.executarFerramenta(bloco, anexos, consultas, emails));
         if (bloco.name === "salvar_fato" && !resultados.at(-1)?.is_error) fatosSalvos++;
       }
       messages.push({ role: "user", content: resultados });
@@ -294,6 +318,7 @@ export class Cerebro {
       fatosSalvos,
       anexos,
       consultas,
+      emails,
     };
   }
 
@@ -301,6 +326,7 @@ export class Cerebro {
     bloco: Anthropic.Beta.BetaToolUseBlock,
     anexos: Anexo[],
     consultas: string[],
+    emails: RespostaTurno["emails"],
   ): Promise<Anthropic.Beta.BetaToolResultBlockParam> {
     const erro = (mensagem: string): Anthropic.Beta.BetaToolResultBlockParam => ({
       type: "tool_result",
@@ -372,6 +398,25 @@ export class Cerebro {
       }
     }
 
+    if (bloco.name === "preparar_email") {
+      const entrada = bloco.input as Record<string, unknown>;
+      const validacao = validarEmail({ ...entrada, responderA: entrada.responder_a });
+      if (!validacao.ok) return erro(validacao.erro);
+      if (emails.length >= 3) return erro("No máximo três e-mails por resposta.");
+      try {
+        const pendenteId = await this.memoria.criarPendente("email", validacao.email);
+        emails.push({ pendenteId, email: validacao.email });
+        consultas.push(`preparou o e-mail #${pendenteId} para ${validacao.email.para.join(", ")} (esperando o botão Enviar)`);
+        return {
+          type: "tool_result",
+          tool_use_id: bloco.id,
+          content: `E-mail #${pendenteId} preparado, NÃO enviado. Logo depois da sua resposta ele verá o e-mail inteiro com o botão Enviar. Na resposta, diga em uma linha que está pronto para ele conferir e enviar; não repita o texto e não diga que enviou.`,
+        };
+      } catch (e) {
+        return erro(`Falha ao preparar o e-mail: ${(e as Error).message}`);
+      }
+    }
+
     if (bloco.name === "gerar_documento") {
       const entrada = bloco.input as { titulo?: unknown; formato?: unknown; conteudo?: unknown };
       const titulo = typeof entrada.titulo === "string" ? entrada.titulo.trim() : "";
@@ -404,6 +449,18 @@ export class Cerebro {
       return erro(`Falha ao salvar: ${(e as Error).message}`);
     }
   }
+}
+
+// Duas mensagens seguidas do mesmo lado (a resposta e, depois, o registro de
+// um e-mail enviado pelo botão) viram uma só: a conversa alterna sempre.
+export function juntarSeguidas(historico: Mensagem[]): Mensagem[] {
+  const saida: Mensagem[] = [];
+  for (const m of historico) {
+    const ultima = saida.at(-1);
+    if (ultima && ultima.papel === m.papel) ultima.conteudo = `${ultima.conteudo}\n\n${m.conteudo}`;
+    else saida.push({ ...m });
+  }
+  return saida;
 }
 
 function limitar(texto: string): string {

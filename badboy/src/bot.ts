@@ -1,8 +1,10 @@
 import { Bot, InlineKeyboard, InputFile, type Context } from "grammy";
-import { comRegistroInterno, type Cerebro } from "./claude.ts";
+import { MARCA_REGISTRO, comRegistroInterno, type Cerebro } from "./claude.ts";
 import type { Config } from "./config.ts";
 import { formatarResumo } from "./custo.ts";
+import { previaEmail, validarEmail } from "./email.ts";
 import type { Memoria } from "./memoria.ts";
+import type { Sistemas } from "./sistemas.ts";
 import {
   CANCELAR,
   codificarConfirmacao,
@@ -34,7 +36,12 @@ export const COMANDOS = [
 
 const agoraS = () => Math.floor(Date.now() / 1000);
 
-export function criarBot(config: Config, memoria: Memoria, cerebro: Cerebro): Bot {
+export function criarBot(
+  config: Config,
+  memoria: Memoria,
+  cerebro: Cerebro,
+  sistemas: Pick<Sistemas, "enviarEmail">,
+): Bot {
   const bot = new Bot(config.telegramToken);
 
   // Porteiro: só o dono, só em conversa privada. Qualquer outro update é
@@ -86,22 +93,26 @@ export function criarBot(config: Config, memoria: Memoria, cerebro: Cerebro): Bo
     ),
   );
 
+  // Cancelar e botão vencido só tiram os botões: a mensagem (a prévia de um
+  // e-mail, por exemplo) continua na conversa, e um aviso curto vem abaixo.
   bot.callbackQuery(CANCELAR, async (ctx) => {
     await ctx.answerCallbackQuery();
-    await ctx.editMessageText("Cancelado. Nada foi apagado.");
+    await ctx.editMessageReplyMarkup();
+    await ctx.reply("Cancelado. Nada foi feito.");
   });
 
   bot.callbackQuery(/^ok:/, async (ctx) => {
     const leitura = lerConfirmacao(ctx.callbackQuery.data, agoraS());
     if (!leitura.valida) {
       await ctx.answerCallbackQuery({ text: leitura.motivo === "expirada" ? "Botão expirado." : "Botão inválido." });
-      await ctx.editMessageText("Confirmação expirada. Nada foi apagado. Rode o comando de novo.");
+      await ctx.editMessageReplyMarkup();
+      await ctx.reply("Confirmação expirada. Nada foi feito. Peça de novo.");
       return;
     }
     // Tira os botões antes de executar: um segundo toque não repete a ação.
     await ctx.answerCallbackQuery();
     await ctx.editMessageReplyMarkup();
-    await ctx.editMessageText(await executar(leitura.acao, ctx.chat!.id));
+    await ctx.reply(await executar(leitura.acao, ctx.chat!.id));
   });
 
   bot.on("message:text", async (ctx) => {
@@ -111,12 +122,16 @@ export function criarBot(config: Config, memoria: Memoria, cerebro: Cerebro): Bo
     const pararDigitando = manterDigitando(ctx);
     try {
       const historico = await memoria.historico(chatId);
-      const { texto, anexos, consultas } = await cerebro.responder(historico, dataPorExtenso(new Date(), config.fuso));
+      const { texto, anexos, consultas, emails } = await cerebro.responder(historico, dataPorExtenso(new Date(), config.fuso));
       // O dono recebe só o texto; o histórico guarda também o que foi consultado.
       await memoria.salvarMensagem(chatId, "assistant", comRegistroInterno(texto, consultas));
       await responderLongo(ctx, texto);
       for (const anexo of anexos) {
         await ctx.replyWithDocument(new InputFile(anexo.bytes, anexo.nome), { caption: anexo.titulo });
+      }
+      // Cada e-mail preparado aparece inteiro, com o botão Enviar embaixo.
+      for (const { pendenteId, email } of emails) {
+        await pedirConfirmacao(ctx, previaEmail(email), { tipo: "email", pendenteId }, "📤 Enviar");
       }
     } finally {
       pararDigitando();
@@ -131,6 +146,7 @@ export function criarBot(config: Config, memoria: Memoria, cerebro: Cerebro): Bo
   });
 
   async function executar(acao: AcaoIrreversivel, chatId: number): Promise<string> {
+    if (acao.tipo === "email") return await enviarEmail(acao.pendenteId, chatId);
     if (acao.tipo === "esquecer") {
       return (await memoria.apagarFato(acao.fatoId))
         ? `Fato #${acao.fatoId} apagado.`
@@ -140,14 +156,47 @@ export function criarBot(config: Config, memoria: Memoria, cerebro: Cerebro): Bo
     return `Histórico apagado (${n} mensagens). Começamos do zero; os fatos continuam.`;
   }
 
+  // Envio do e-mail preparado, depois do toque em Enviar. A reserva é
+  // atômica: se já foi enviado (dois toques), não manda de novo. O resultado
+  // entra no histórico para o Don Boy saber, na próxima conversa, que saiu.
+  async function enviarEmail(pendenteId: number, chatId: number): Promise<string> {
+    const pendente = await memoria.reservarPendente(pendenteId);
+    if (!pendente || pendente.tipo !== "email") return "Esse e-mail já foi enviado ou não existe mais. Nada foi feito agora.";
+    const validacao = validarEmail(pendente.dados);
+    if (!validacao.ok) {
+      await memoria.concluirPendente(pendenteId, `recusado: ${validacao.erro}`);
+      return `Não enviei: ${validacao.erro}`;
+    }
+    const { para, assunto } = validacao.email;
+    try {
+      await sistemas.enviarEmail(validacao.email);
+    } catch (e) {
+      const motivo = (e as Error).message;
+      await memoria.concluirPendente(pendenteId, `erro: ${motivo}`);
+      await memoria.salvarMensagem(chatId, "assistant", `${MARCA_REGISTRO} O e-mail #${pendenteId} NÃO foi enviado (${motivo}).`);
+      return `❌ Não enviei o e-mail: ${motivo}`;
+    }
+    await memoria.concluirPendente(pendenteId, "enviado");
+    await memoria.salvarMensagem(
+      chatId,
+      "assistant",
+      `${MARCA_REGISTRO} O dono tocou em Enviar e o e-mail #${pendenteId} foi enviado para ${para.join(", ")}${assunto ? `, assunto "${assunto}"` : ""}.`,
+    );
+    return `✅ E-mail enviado para ${para.join(", ")}.`;
+  }
+
   return bot;
 }
 
-async function pedirConfirmacao(ctx: Context, pergunta: string, acao: AcaoIrreversivel): Promise<void> {
+// Mensagem com os botões de confirmação. Texto longo (um e-mail grande) vai
+// em partes, com os botões na última.
+async function pedirConfirmacao(ctx: Context, pergunta: string, acao: AcaoIrreversivel, rotulo = "✅ Confirmar"): Promise<void> {
   const teclado = new InlineKeyboard()
-    .text("✅ Confirmar", codificarConfirmacao(acao, agoraS()))
+    .text(rotulo, codificarConfirmacao(acao, agoraS()))
     .text("✖️ Cancelar", CANCELAR);
-  await ctx.reply(pergunta, { reply_markup: teclado });
+  const partes = dividirMensagem(pergunta);
+  for (const parte of partes.slice(0, -1)) await ctx.reply(parte);
+  await ctx.reply(partes.at(-1) ?? pergunta, { reply_markup: teclado });
 }
 
 async function responderLongo(ctx: Context, texto: string): Promise<void> {

@@ -38,12 +38,17 @@ Telegram ──webhook──▶ Edge Function badboy-telegram ──▶ Claude (
   da ponte fica no Vault do principal (`donboy_ponte_segundo`, lido por
   `badboy_segredo`); lá fica só o hash. O mapa do que há em cada banco vive em
   `badboy_fatos`, não no código (o repositório é público).
-- **Agenda e Gmail, só leitura** (`ver_agenda`, `buscar_emails`, `ler_email`):
-  pela conexão Google que a Central do Léo já tem no segundo projeto (escopos
-  gmail.readonly e calendar.readonly). A ponte usa a chave de renovação de lá
-  (`leo_config`) e as credenciais do app (`GOOGLE_CLIENT_ID`/`SECRET` daquele
-  projeto); o Don Boy recebe só eventos e e-mails. Não envia e-mail nem mexe
-  na agenda.
+- **Agenda e Gmail** (`ver_agenda`, `buscar_emails`, `ler_email`): pela
+  conexão Google que a Central do Léo já tem no segundo projeto. A ponte usa a
+  chave de renovação de lá (`leo_config`) e as credenciais do app
+  (`GOOGLE_CLIENT_ID`/`SECRET` daquele projeto); o Don Boy recebe só eventos e
+  e-mails. Não mexe na agenda.
+- **Envio de e-mail com botão** (`preparar_email`): o Claude só prepara; o
+  e-mail fica em `badboy_pendentes` (migração `0004`) e o dono vê a prévia
+  inteira com o botão Enviar. O toque reserva a linha de forma atômica (dois
+  toques não mandam duas vezes) e a ponte envia pelo Gmail (escopo
+  `gmail.send`, pedido pela Central do Léo), como resposta na mesma conversa
+  quando for o caso. O resultado entra no histórico.
 - **Novidades** (`novidades_nos_sistemas`): o que foi criado ou atualizado nas
   últimas horas nos dois bancos (migração `0003`). Quando o dono diz que
   atualizou algo, o Don Boy olha aqui antes de responder.

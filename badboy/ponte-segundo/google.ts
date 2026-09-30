@@ -1,14 +1,17 @@
-// Agenda e Gmail do dono, SÓ LEITURA, pela conexão com o Google que a Central
-// do Léo (vida-leo) já tem neste projeto: a chave de renovação fica em
+// Agenda e Gmail do dono pela conexão com o Google que a Central do Léo
+// (vida-leo) já tem neste projeto: a chave de renovação fica em
 // leo_config ('google_refresh') e o crachá de ~1 h em 'google_token', no mesmo
 // formato que a Central usa. As credenciais do app (GOOGLE_CLIENT_ID e
 // GOOGLE_CLIENT_SECRET) são segredos deste projeto. Nada disso sai daqui: o Don
 // Boy recebe só os eventos e os e-mails.
 //
-// Escopos da conexão: gmail.readonly, calendar.readonly, calendar.app.created e
-// drive.readonly. Esta ponte usa só os de leitura de agenda e Gmail.
+// Escopos da conexão: gmail.readonly, gmail.send, calendar.readonly,
+// calendar.app.created e drive.readonly. Esta ponte lê agenda e Gmail e envia
+// e-mail. O envio só é chamado depois do toque do dono no botão "Enviar" do
+// Telegram; aqui o e-mail é validado de novo antes de sair.
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.117.2";
+import { montarMime, paraBase64Url, validarEmail } from "../src/email.ts";
 
 const OAUTH_TOKEN = "https://oauth2.googleapis.com/token";
 const CALENDAR = "https://www.googleapis.com/calendar/v3";
@@ -203,4 +206,44 @@ export async function gmailLer(db: SupabaseClient, id: string) {
     corpo: corpo.length > LIMITE_CORPO ? `${corpo.slice(0, LIMITE_CORPO)}\n[corpo cortado]` : corpo,
     anexos,
   };
+}
+
+// Envia pelo Gmail do dono. Numa resposta, busca o Message-ID do original para
+// o e-mail cair na mesma conversa, e usa "Re: assunto" se o assunto veio vazio.
+export async function gmailEnviar(db: SupabaseClient, entrada: unknown) {
+  const validacao = validarEmail(entrada);
+  if (!validacao.ok) throw new Error(validacao.erro);
+  const email = validacao.email;
+  const token = await tokenGoogle(db);
+
+  let assunto = email.assunto;
+  let threadId = "";
+  let resposta: { messageId: string; references: string } | undefined;
+  if (email.responderA) {
+    const params = "format=metadata&metadataHeaders=Message-ID&metadataHeaders=References&metadataHeaders=Subject";
+    const original = await google(token, `${GMAIL}/messages/${email.responderA}?${params}`);
+    threadId = texto(original.threadId);
+    resposta = { messageId: cabecalho(original, "Message-ID"), references: cabecalho(original, "References") };
+    if (!assunto) {
+      const doOriginal = cabecalho(original, "Subject");
+      assunto = /^re:/i.test(doOriginal) ? doOriginal : `Re: ${doOriginal}`;
+    }
+  }
+
+  const raw = paraBase64Url(montarMime(email, assunto, resposta));
+  const resp = await fetch(`${GMAIL}/messages/send`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(threadId ? { raw, threadId } : { raw }),
+    signal: AbortSignal.timeout(25_000),
+  });
+  const dados = (await resp.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!resp.ok) {
+    if (resp.status === 403) {
+      throw new Error("falta autorizar o envio: na Central do Léo, tela Drive, clique em Conectar e aceite o envio de e-mail");
+    }
+    const erro = (dados.error as { message?: string } | undefined)?.message;
+    throw new Error(`Google ${resp.status}${erro ? `: ${erro}` : ""}`);
+  }
+  return { id: texto(dados.id), conversa: texto(dados.threadId), para: email.para, assunto };
 }

@@ -122,6 +122,32 @@ export class Memoria {
     return (count ?? 0) > 0;
   }
 
+  // Ação irreversível preparada pelo Claude, esperando o botão do dono.
+  async criarPendente(tipo: "email", dados: unknown): Promise<number> {
+    const { data, error } = await this.db.from("badboy_pendentes").insert({ tipo, dados }).select("id").single();
+    if (error) throw new Error(`Supabase (criar pendente): ${error.message}`);
+    return data.id as number;
+  }
+
+  // Reserva a ação para executar: um UPDATE só, que só acha a linha se ela
+  // ainda não foi executada. Dois toques no botão: o segundo volta null.
+  async reservarPendente(id: number): Promise<{ tipo: string; dados: unknown } | null> {
+    const { data, error } = await this.db
+      .from("badboy_pendentes")
+      .update({ executado_em: new Date().toISOString() })
+      .eq("id", id)
+      .is("executado_em", null)
+      .select("tipo, dados")
+      .maybeSingle();
+    if (error) throw new Error(`Supabase (reservar pendente): ${error.message}`);
+    return data ? { tipo: data.tipo as string, dados: data.dados } : null;
+  }
+
+  async concluirPendente(id: number, resultado: string): Promise<void> {
+    const { error } = await this.db.from("badboy_pendentes").update({ resultado: resultado.slice(0, 1000) }).eq("id", id);
+    if (error) throw new Error(`Supabase (concluir pendente): ${error.message}`);
+  }
+
   async registrarUso(registros: RegistroUso[]): Promise<void> {
     if (registros.length === 0) return;
     const { error } = await this.db.from("badboy_uso").insert(
