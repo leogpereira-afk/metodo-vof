@@ -5,6 +5,7 @@ import { calcularCusto, custosDaResposta } from "../src/custo.ts";
 import { JANELA_MIN, JANELA_PASSO, tamanhoJanela } from "../src/memoria.ts";
 import {
   VALIDADE_CONFIRMACAO_S,
+  inicioDoDia,
   codificarConfirmacao,
   dividirMensagem,
   lerConfirmacao,
@@ -144,4 +145,9 @@ test("config: exige as chaves e valida o ID do dono", () => {
   // Token partido por quebra de linha ao colar: junta as partes.
   assert.equal(lerConfig({ ...env, TELEGRAM_BOT_TOKEN: "7123456789:AAHk3abcdefghij\nklmnopqrstuvwxyz_-01" }).telegramToken, token);
   assert.throws(() => lerConfig({ ...env, CLAUDE_ESFORCO: "turbo" }), /CLAUDE_ESFORCO/);
+});
+
+test("início do dia no fuso de Brasília, para a rotina rodar uma vez por dia", () => {
+  assert.equal(inicioDoDia(new Date("2026-10-01T02:30:00Z"), "America/Sao_Paulo").toISOString(), "2026-09-30T03:00:00.000Z");
+  assert.equal(inicioDoDia(new Date("2026-10-01T09:30:00Z"), "America/Sao_Paulo").toISOString(), "2026-10-01T03:00:00.000Z");
 });

@@ -1,4 +1,4 @@
-import { Bot, InlineKeyboard, InputFile, type Context } from "grammy";
+import { Bot, InlineKeyboard, InputFile, type Api, type Context } from "grammy";
 import { MARCA_REGISTRO, comRegistroInterno, type Cerebro } from "./claude.ts";
 import type { Config } from "./config.ts";
 import { formatarResumo } from "./custo.ts";
@@ -86,7 +86,7 @@ export function criarBot(
     if (!Number.isSafeInteger(id) || id <= 0) return ctx.reply("Use assim: /esquecer [número do fato]. Veja os números em /fatos.");
     const fato = await memoria.buscarFato(id);
     if (!fato) return ctx.reply(`Não existe fato #${id}.`);
-    await pedirConfirmacao(ctx, `Apagar o fato #${id}?\n\n“${fato.conteudo}”\n\nIsso não tem volta.`, {
+    await pedirConfirmacao(ctx.api, ctx.chat.id, `Apagar o fato #${id}?\n\n“${fato.conteudo}”\n\nIsso não tem volta.`, {
       tipo: "esquecer",
       fatoId: id,
     });
@@ -94,7 +94,8 @@ export function criarBot(
 
   bot.command("limpar", (ctx) =>
     pedirConfirmacao(
-      ctx,
+      ctx.api,
+      ctx.chat.id,
       "Apagar TODO o histórico desta conversa? Os fatos salvos continuam.\n\nIsso não tem volta.",
       { tipo: "limpar" },
     ),
@@ -130,28 +131,7 @@ export function criarBot(
     try {
       await esperar(ESPERA_AGRUPAR_MS);
       if ((await memoria.ultimaDoDono(chatId)) !== minha) return; // chegou outra: ela responde por todas
-      const historico = await memoria.historico(chatId);
-      const { texto, anexos, consultas, confirmacoes } = await cerebro.responder(historico, dataPorExtenso(new Date(), config.fuso));
-      // O dono recebe só o texto; o histórico guarda também o que foi consultado.
-      await memoria.salvarMensagem(chatId, "assistant", comRegistroInterno(texto, consultas));
-      await responderFormatado(ctx, texto);
-      for (const anexo of anexos) {
-        await ctx.replyWithDocument(new InputFile(anexo.bytes, anexo.nome), { caption: anexo.titulo });
-      }
-      // Cada ação preparada aparece inteira, com o botão embaixo.
-      for (const c of confirmacoes) {
-        if (c.tipo === "email") {
-          await pedirConfirmacao(ctx, previaEmail(c.email), { tipo: "email", pendenteId: c.pendenteId }, "📤 Enviar");
-        } else {
-          const lista = c.fatos.map((f) => `#${f.id}. ${f.conteudo}`).join("\n\n");
-          await pedirConfirmacao(
-            ctx,
-            `🗑️ APAGAR ${c.fatos.length} FATO(S) DA MEMÓRIA${c.motivo ? `\n${c.motivo}` : ""}\n\n${lista}\n\nIsso não tem volta.`,
-            { tipo: "fatos", pendenteId: c.pendenteId },
-            "🗑️ Apagar",
-          );
-        }
-      }
+      await turno(ctx.api, chatId, config, memoria, cerebro);
     } finally {
       pararDigitando();
     }
@@ -222,15 +202,56 @@ export function criarBot(
   return bot;
 }
 
+// Um turno do Don Boy numa conversa: lê o histórico (a mensagem do dono já
+// está gravada), pensa, grava a resposta e entrega texto, documentos e
+// botões. Serve à mensagem do dono e às rotinas (briefing da manhã).
+export async function turno(
+  api: Api,
+  chatId: number,
+  config: Pick<Config, "fuso">,
+  memoria: Memoria,
+  cerebro: Cerebro,
+): Promise<void> {
+  const historico = await memoria.historico(chatId);
+  const { texto, anexos, consultas, confirmacoes } = await cerebro.responder(historico, dataPorExtenso(new Date(), config.fuso));
+  // O dono recebe só o texto; o histórico guarda também o que foi consultado.
+  await memoria.salvarMensagem(chatId, "assistant", comRegistroInterno(texto, consultas));
+  await responderFormatado(api, chatId, texto);
+  for (const anexo of anexos) {
+    await api.sendDocument(chatId, new InputFile(anexo.bytes, anexo.nome), { caption: anexo.titulo });
+  }
+  // Cada ação preparada aparece inteira, com o botão embaixo.
+  for (const c of confirmacoes) {
+    if (c.tipo === "email") {
+      await pedirConfirmacao(api, chatId, previaEmail(c.email), { tipo: "email", pendenteId: c.pendenteId }, "📤 Enviar");
+    } else {
+      const lista = c.fatos.map((f) => `#${f.id}. ${f.conteudo}`).join("\n\n");
+      await pedirConfirmacao(
+        api,
+        chatId,
+        `🗑️ APAGAR ${c.fatos.length} FATO(S) DA MEMÓRIA${c.motivo ? `\n${c.motivo}` : ""}\n\n${lista}\n\nIsso não tem volta.`,
+        { tipo: "fatos", pendenteId: c.pendenteId },
+        "🗑️ Apagar",
+      );
+    }
+  }
+}
+
 // Mensagem com os botões de confirmação. Texto longo (um e-mail grande) vai
 // em partes, com os botões na última.
-async function pedirConfirmacao(ctx: Context, pergunta: string, acao: AcaoIrreversivel, rotulo = "✅ Confirmar"): Promise<void> {
+async function pedirConfirmacao(
+  api: Api,
+  chatId: number,
+  pergunta: string,
+  acao: AcaoIrreversivel,
+  rotulo = "✅ Confirmar",
+): Promise<void> {
   const teclado = new InlineKeyboard()
     .text(rotulo, codificarConfirmacao(acao, agoraS()))
     .text("✖️ Cancelar", CANCELAR);
   const partes = dividirMensagem(pergunta);
-  for (const parte of partes.slice(0, -1)) await ctx.reply(parte);
-  await ctx.reply(partes.at(-1) ?? pergunta, { reply_markup: teclado });
+  for (const parte of partes.slice(0, -1)) await api.sendMessage(chatId, parte);
+  await api.sendMessage(chatId, partes.at(-1) ?? pergunta, { reply_markup: teclado });
 }
 
 async function responderLongo(ctx: Context, texto: string): Promise<void> {
@@ -239,13 +260,13 @@ async function responderLongo(ctx: Context, texto: string): Promise<void> {
 
 // Resposta do Claude: negrito, listas e tabelas em HTML do Telegram. Se o
 // Telegram recusar a marcação de um trecho, esse trecho vai em texto puro.
-async function responderFormatado(ctx: Context, texto: string): Promise<void> {
+async function responderFormatado(api: Api, chatId: number, texto: string): Promise<void> {
   for (const parte of dividirMensagem(texto)) {
     try {
-      await ctx.reply(paraHtmlTelegram(parte), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
+      await api.sendMessage(chatId, paraHtmlTelegram(parte), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
     } catch (e) {
       console.error("HTML recusado pelo Telegram, indo em texto puro:", (e as Error).message);
-      await ctx.reply(semMarcacao(parte));
+      await api.sendMessage(chatId, semMarcacao(parte));
     }
   }
 }

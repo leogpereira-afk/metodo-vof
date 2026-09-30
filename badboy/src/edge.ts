@@ -9,16 +9,17 @@
 //                          e devolve um diagnóstico, sem expor nenhuma chave
 // GET  ?pergunta=...      → pergunta de teste, fora do Telegram (exige o token
 //                          da ponte no header x-donboy-token)
+// POST ?rotina=briefing   → briefing da manhã, disparado pelo pg_cron (mesmo token)
 // POST /badboy-telegram  → updates do Telegram (com token secreto)
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { Bot } from "grammy";
-import { COMANDOS, criarBot } from "./bot.ts";
+import { COMANDOS, criarBot, turno } from "./bot.ts";
 import { Cerebro } from "./claude.ts";
 import { lerConfig, type Ambiente, type Config } from "./config.ts";
 import { Memoria } from "./memoria.ts";
 import { SEGREDO_PONTE, Sistemas } from "./sistemas.ts";
-import { dataPorExtenso } from "./telegram-util.ts";
+import { dataPorExtenso, inicioDoDia } from "./telegram-util.ts";
 
 declare const EdgeRuntime: { waitUntil(promessa: Promise<unknown>): void };
 
@@ -182,17 +183,44 @@ async function hashHex(texto: string): Promise<string> {
   return Array.from(hash, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// Quem chama as rotinas e a pergunta de teste mostra o token da ponte, o mesmo
+// do Vault: só o próprio banco (pg_cron) e o servidor o conhecem.
+async function autorizado(req: Request, ctx: Contexto): Promise<boolean> {
+  const esperado = await ctx.memoria.segredo(SEGREDO_PONTE);
+  const recebido = req.headers.get("x-donboy-token") ?? "";
+  return Boolean(esperado) && (await hashHex(recebido)) === (await hashHex(esperado!));
+}
+
+// Texto que o briefing automático grava como pedido do dono: o Claude
+// responde como a um "bom dia", e a conversa segue dali se ele responder.
+export const PEDIDO_BRIEFING = "bom dia (briefing automático das 6h30: ainda não li nada hoje)";
+
+// Briefing da manhã, uma vez por dia. Responde na hora e trabalha em segundo
+// plano: o briefing consulta agenda, sistemas, e-mails e clima e leva ~1 min.
+async function rotinaBriefing(req: Request): Promise<Response> {
+  const ctx = await preparar();
+  if (!(await autorizado(req, ctx))) return new Response("não autorizado", { status: 401 });
+  const chatId = ctx.config.donoId;
+  if (await ctx.memoria.jaPediu(chatId, PEDIDO_BRIEFING, inicioDoDia(new Date(), ctx.config.fuso))) {
+    return json({ ok: true, feito: "o briefing de hoje já foi enviado" });
+  }
+  await ctx.memoria.salvarMensagem(chatId, "user", PEDIDO_BRIEFING);
+  EdgeRuntime.waitUntil(
+    turno(ctx.bot.api, chatId, ctx.config, ctx.memoria, ctx.cerebro).catch(async (e) => {
+      console.error("Falha no briefing:", e);
+      await ctx.bot.api.sendMessage(chatId, "Não consegui montar o briefing de hoje. Me mande \"bom dia\" que eu refaço.").catch(() => {});
+    }),
+  );
+  return json({ ok: true, iniciado: true }, 202);
+}
+
 // Pergunta de teste: roda o cérebro inteiro (sistemas, agenda, internet) numa
 // conversa avulsa, sem Telegram e sem histórico, e devolve a resposta. Serve
 // para conferir a qualidade depois de publicar. Só com o token da ponte (o
 // mesmo do Vault): ninguém de fora gasta a API nem lê dados por aqui.
 async function perguntaDeTeste(req: Request, pergunta: string): Promise<Response> {
   const ctx = await preparar();
-  const esperado = await ctx.memoria.segredo(SEGREDO_PONTE);
-  const recebido = req.headers.get("x-donboy-token") ?? "";
-  if (!esperado || (await hashHex(recebido)) !== (await hashHex(esperado))) {
-    return new Response("não autorizado", { status: 401 });
-  }
+  if (!(await autorizado(req, ctx))) return new Response("não autorizado", { status: 401 });
   const inicio = Date.now();
   const r = await ctx.cerebro.responder(
     [{ papel: "user", conteudo: pergunta.slice(0, 2000), em: new Date().toISOString() }],
@@ -210,8 +238,10 @@ async function perguntaDeTeste(req: Request, pergunta: string): Promise<Response
 
 Deno.serve(async (req) => {
   try {
-    const pergunta = req.method === "GET" ? new URL(req.url).searchParams.get("pergunta") : null;
+    const url = new URL(req.url);
+    const pergunta = req.method === "GET" ? url.searchParams.get("pergunta") : null;
     if (pergunta) return await perguntaDeTeste(req, pergunta);
+    if (req.method === "POST" && url.searchParams.get("rotina") === "briefing") return await rotinaBriefing(req);
     if (req.method === "GET") return json(await configurarEDiagnosticar());
     if (req.method !== "POST") return new Response("método não permitido", { status: 405 });
 

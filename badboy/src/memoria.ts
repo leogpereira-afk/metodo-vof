@@ -50,6 +50,19 @@ export class Memoria {
     return data.id as number;
   }
 
+  // Se o dono (ou uma rotina em nome dele) já mandou este texto desde a data.
+  async jaPediu(chatId: number, conteudo: string, desde: Date): Promise<boolean> {
+    const { count, error } = await this.db
+      .from("badboy_mensagens")
+      .select("id", { count: "exact", head: true })
+      .eq("chat_id", chatId)
+      .eq("papel", "user")
+      .eq("conteudo", conteudo)
+      .gte("criada_em", desde.toISOString());
+    if (error) throw new Error(`Supabase (rotina): ${error.message}`);
+    return (count ?? 0) > 0;
+  }
+
   // Id da mensagem mais recente do dono na conversa.
   async ultimaDoDono(chatId: number): Promise<number | null> {
     const { data, error } = await this.db

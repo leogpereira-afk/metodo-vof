@@ -66,3 +66,11 @@ export function dataPorExtenso(data: Date, fuso: string): string {
 export function mesPorExtenso(data: Date, fuso: string): string {
   return new Intl.DateTimeFormat("pt-BR", { timeZone: fuso, month: "long", year: "numeric" }).format(data);
 }
+
+// Meia-noite de hoje no fuso dado, como instante (para "já foi feito hoje?").
+export function inicioDoDia(agora: Date, fuso: string): Date {
+  const dia = new Intl.DateTimeFormat("en-CA", { timeZone: fuso, year: "numeric", month: "2-digit", day: "2-digit" }).format(agora);
+  const partes = new Intl.DateTimeFormat("en-US", { timeZone: fuso, timeZoneName: "longOffset" }).formatToParts(agora);
+  const deslocamento = (partes.find((p) => p.type === "timeZoneName")?.value ?? "GMT").replace("GMT", "") || "+00:00";
+  return new Date(`${dia}T00:00:00${deslocamento}`);
+}

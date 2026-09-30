@@ -39,6 +39,10 @@ Telegram ──webhook──▶ Edge Function badboy-telegram ──▶ Claude (
   mensagem espera 2,5 s e só a última responde, com todas juntas.
 - **Formatação no Telegram**: negrito, listas e tabelas em HTML; tabela larga
   vira uma linha por item no celular.
+- **Briefing da manhã**: todo dia às 6h30 de Brasília o pg_cron chama
+  `POST /badboy-telegram?rotina=briefing` (migração `0006`, com o token da
+  ponte lido do Vault). O Don Boy grava o pedido como um "bom dia" do dono,
+  monta o briefing em segundo plano e não repete no mesmo dia.
 - **Lê os sistemas das empresas** (CRM, financeiro, obras, RH, laboratório),
   **só leitura** (`ver_estrutura_banco`, `consultar_banco`). A consulta passa por
   `donboy.consultar()` (migração `0002_donboy_leitura.sql`): roda como o papel
