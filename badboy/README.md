@@ -39,6 +39,17 @@ Telegram ──webhook──▶ Edge Function badboy-telegram ──▶ Claude (
   mensagem espera 2,5 s e só a última responde, com todas juntas.
 - **Formatação no Telegram**: negrito, listas e tabelas em HTML; tabela larga
   vira uma linha por item no celular.
+- **ERP (Mubisys), orçamentos e compras**:
+  - visões `donboy.mubi_os`, `mubi_itens`, `mubi_precos` (preço praticado em
+    12 meses), `mubi_orcamentos` e `compras_pedidos` no segundo projeto
+    (migração `migrations-segundo/0002`), a partir da carga horária do Painel;
+  - `consultar_erp`: O.S., orçamento, cliente ou fornecedor ao vivo, só
+    leitura, pela ponte (`ponte-segundo/mubisys.ts`, com as credenciais do ERP
+    que já são segredo daquele projeto); 404 só vale como "não achou" quando
+    dois seguidos concordam;
+  - `preparar_solicitacao_compra`: solicitação de material ao módulo Compras,
+    pela mesma porta do link público, depois do botão Solicitar (migração
+    `0007`).
 - **Briefing da manhã**: todo dia às 6h30 de Brasília o pg_cron chama
   `POST /badboy-telegram?rotina=briefing` (migração `0006`, com o token da
   ponte lido do Vault). O Don Boy grava o pedido como um "bom dia" do dono,

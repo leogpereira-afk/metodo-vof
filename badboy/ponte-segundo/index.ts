@@ -1,5 +1,6 @@
 // donboy-ponte: Edge Function do SEGUNDO projeto Supabase. O Don Boy mora no
-// projeto principal; por aqui ele só LÊ os sistemas deste projeto.
+// projeto principal; por aqui ele LÊ os sistemas deste projeto e, depois do
+// botão de confirmação do dono, envia e-mail e pede material ao Compras.
 //
 // POST com o header x-donboy-token e o corpo:
 //   { "acao": "consultar", "sql": "select ..." }  → até 200 linhas em JSON
@@ -9,6 +10,8 @@
 //   { "acao": "gmail_ler", "id": "..." }          → um e-mail inteiro
 //   { "acao": "gmail_enviar", "email": { para, cc, assunto, corpo, responderA } }
 //   { "acao": "agenda_lembrete", "lembrete": { titulo, data, hora, duracaoMin, nota } }
+//   { "acao": "mubisys", "tipo": "os|orcamento|cliente|fornecedor", "chave": "..." } → ERP ao vivo, só leitura
+//   { "acao": "compras_solicitar", "solicitacao": { itens, setor, urgencia, ... } } → SC no módulo Compras
 // Agenda e Gmail pela conexão Google da Central (google.ts). O envio só é
 // pedido depois do toque do dono no botão "Enviar" do Telegram.
 //
@@ -19,6 +22,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.117.2";
 import { agenda, criarLembrete, gmailBuscar, gmailEnviar, gmailLer } from "./google.ts";
+import { consultarMubisys, solicitarCompra, type SolicitacaoCompra } from "./mubisys.ts";
 
 function chaveSecreta(): string {
   try {
@@ -60,7 +64,7 @@ Deno.serve(async (req) => {
 
   let corpo: {
     acao?: unknown; sql?: unknown; horas?: unknown; de?: unknown; ate?: unknown; consulta?: unknown; quantos?: unknown;
-    id?: unknown; email?: unknown; lembrete?: unknown;
+    id?: unknown; email?: unknown; lembrete?: unknown; tipo?: unknown; chave?: unknown; solicitacao?: unknown;
   };
   try {
     corpo = await req.json();
@@ -78,6 +82,15 @@ Deno.serve(async (req) => {
     const horas = Math.min(Math.max(Math.trunc(Number(corpo.horas) || 24), 1), 720);
     const { data, error } = await db.rpc("badboy_novidades", { p_horas: horas }, { get: true });
     return error ? json({ erro: error.message }, 400) : json({ dados: data });
+  }
+
+  if (corpo.acao === "mubisys" || corpo.acao === "compras_solicitar") {
+    try {
+      if (corpo.acao === "mubisys") return json({ dados: await consultarMubisys(String(corpo.tipo ?? ""), String(corpo.chave ?? "")) });
+      return json({ dados: await solicitarCompra((corpo.solicitacao ?? {}) as SolicitacaoCompra) });
+    } catch (e) {
+      return json({ erro: (e as Error).message }, 502);
+    }
   }
 
   const acoesGoogle = ["agenda", "agenda_lembrete", "gmail_buscar", "gmail_ler", "gmail_enviar"];

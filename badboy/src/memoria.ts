@@ -159,7 +159,7 @@ export class Memoria {
   }
 
   // Ação irreversível preparada pelo Claude, esperando o botão do dono.
-  async criarPendente(tipo: "email" | "fatos", dados: unknown): Promise<number> {
+  async criarPendente(tipo: "email" | "fatos" | "compra", dados: unknown): Promise<number> {
     const { data, error } = await this.db.from("badboy_pendentes").insert({ tipo, dados }).select("id").single();
     if (error) throw new Error(`Supabase (criar pendente): ${error.message}`);
     return data.id as number;

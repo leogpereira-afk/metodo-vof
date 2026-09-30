@@ -1,5 +1,6 @@
 import { Bot, InlineKeyboard, InputFile, type Api, type Context } from "grammy";
 import { MARCA_REGISTRO, comRegistroInterno, type Cerebro } from "./claude.ts";
+import { previaSolicitacao, validarSolicitacao } from "./compras.ts";
 import type { Config } from "./config.ts";
 import { formatarResumo } from "./custo.ts";
 import { previaEmail, validarEmail } from "./email.ts";
@@ -47,7 +48,7 @@ export function criarBot(
   config: Config,
   memoria: Memoria,
   cerebro: Cerebro,
-  sistemas: Pick<Sistemas, "enviarEmail">,
+  sistemas: Pick<Sistemas, "enviarEmail" | "solicitarCompra">,
 ): Bot {
   const bot = new Bot(config.telegramToken);
 
@@ -147,6 +148,7 @@ export function criarBot(
   async function executar(acao: AcaoIrreversivel, chatId: number): Promise<string> {
     if (acao.tipo === "email") return await enviarEmail(acao.pendenteId, chatId);
     if (acao.tipo === "fatos") return await apagarFatos(acao.pendenteId, chatId);
+    if (acao.tipo === "compra") return await pedirCompra(acao.pendenteId, chatId);
     if (acao.tipo === "esquecer") {
       return (await memoria.apagarFato(acao.fatoId))
         ? `Fato #${acao.fatoId} apagado.`
@@ -183,6 +185,32 @@ export function criarBot(
       `${MARCA_REGISTRO} O dono tocou em Enviar e o e-mail #${pendenteId} foi enviado para ${para.join(", ")}${assunto ? `, assunto "${assunto}"` : ""}.`,
     );
     return `✅ E-mail enviado para ${para.join(", ")}.`;
+  }
+
+  // Solicitação de material ao Compras, depois do toque em Solicitar.
+  async function pedirCompra(pendenteId: number, chatId: number): Promise<string> {
+    const pendente = await memoria.reservarPendente(pendenteId);
+    if (!pendente || pendente.tipo !== "compra") return "Essa solicitação já foi enviada ou não existe mais. Nada foi feito agora.";
+    const validacao = validarSolicitacao(pendente.dados);
+    if (!validacao.ok) {
+      await memoria.concluirPendente(pendenteId, `recusada: ${validacao.erro}`);
+      return `Não enviei: ${validacao.erro}`;
+    }
+    try {
+      const { codigo } = await sistemas.solicitarCompra(validacao.solicitacao);
+      await memoria.concluirPendente(pendenteId, `enviada: ${codigo ?? "sem código"}`);
+      await memoria.salvarMensagem(
+        chatId,
+        "assistant",
+        `${MARCA_REGISTRO} O dono tocou em Solicitar e a solicitação de compra ${codigo ?? `#${pendenteId}`} foi aberta no Compras.`,
+      );
+      return `✅ Solicitação ${codigo ?? `#${pendenteId}`} aberta no Compras. O comprador já vê na fila.`;
+    } catch (e) {
+      const motivo = (e as Error).message;
+      await memoria.concluirPendente(pendenteId, `erro: ${motivo}`);
+      await memoria.salvarMensagem(chatId, "assistant", `${MARCA_REGISTRO} A solicitação de compra #${pendenteId} NÃO foi aberta (${motivo}).`);
+      return `❌ Não abri a solicitação: ${motivo}`;
+    }
   }
 
   // Fatos que o Claude propôs apagar, depois do toque em Apagar.
@@ -224,6 +252,8 @@ export async function turno(
   for (const c of confirmacoes) {
     if (c.tipo === "email") {
       await pedirConfirmacao(api, chatId, previaEmail(c.email), { tipo: "email", pendenteId: c.pendenteId }, "📤 Enviar");
+    } else if (c.tipo === "compra") {
+      await pedirConfirmacao(api, chatId, previaSolicitacao(c.solicitacao), { tipo: "compra", pendenteId: c.pendenteId }, "🛒 Solicitar");
     } else {
       const lista = c.fatos.map((f) => `#${f.id}. ${f.conteudo}`).join("\n\n");
       await pedirConfirmacao(

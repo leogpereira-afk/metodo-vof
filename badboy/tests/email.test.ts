@@ -90,3 +90,26 @@ test("botão de apagar fatos: ida e volta", () => {
   const dado = codificarConfirmacao({ tipo: "fatos", pendenteId: 12 }, 1_800_000_000);
   assert.deepEqual(lerConfirmacao(dado, 1_800_000_010), { valida: true, acao: { tipo: "fatos", pendenteId: 12 } });
 });
+
+test("compras: valida itens, urgência e justificativa; a prévia mostra tudo", async () => {
+  const { validarSolicitacao, previaSolicitacao } = await import("../src/compras.ts");
+  const ok = validarSolicitacao({
+    itens: [{ descricao: "ACM preto brilho 1,22 x 5,00", qtd: "10", unid: "chapa" }],
+    setor: "Serralheria", urgencia: "urgente", necessidadeEm: "2026-10-05", justificativa: "O.S. 23451", obra: "",
+  });
+  assert.ok(ok.ok);
+  const s = ok.ok ? ok.solicitacao : (undefined as never);
+  assert.equal(s.itens[0]!.qtd, 10);
+  assert.equal(s.obra, "Produção");
+  const previa = previaSolicitacao(s);
+  for (const t of ["10 chapa de ACM preto", "O.S. 23451", "Serralheria", "urgente", "05/10/2026"]) assert.ok(previa.includes(t), t);
+  assert.match((validarSolicitacao({ itens: [], justificativa: "x" }) as { erro: string }).erro, /ao menos um item/);
+  assert.match((validarSolicitacao({ itens: [{ descricao: "x", qtd: 0 }], justificativa: "x" }) as { erro: string }).erro, /quantidade/);
+  assert.match((validarSolicitacao({ itens: [{ descricao: "x", qtd: 1 }] }) as { erro: string }).erro, /para que é/);
+  assert.equal((validarSolicitacao({ itens: [{ descricao: "x", qtd: 1 }], justificativa: "y", urgencia: "já" }) as { solicitacao: { urgencia: string } }).solicitacao.urgencia, "normal");
+});
+
+test("botão de compra: ida e volta", () => {
+  const dado = codificarConfirmacao({ tipo: "compra", pendenteId: 3 }, 1_800_000_000);
+  assert.deepEqual(lerConfirmacao(dado, 1_800_000_001), { valida: true, acao: { tipo: "compra", pendenteId: 3 } });
+});

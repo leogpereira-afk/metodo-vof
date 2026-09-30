@@ -2,10 +2,11 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Config } from "./config.ts";
 import { custosDaResposta, type RegistroUso } from "./custo.ts";
 import { gerarDocumento, type Anexo, type Formato } from "./documentos.ts";
+import { validarSolicitacao } from "./compras.ts";
 import { validarEmail, type Email } from "./email.ts";
 import type { Memoria, Mensagem } from "./memoria.ts";
 import { INSTRUCOES_FIXAS, blocoVariavel } from "./prompt.ts";
-import { SISTEMAS, type Sistema, type Sistemas } from "./sistemas.ts";
+import { SISTEMAS, TIPOS_ERP, type Sistema, type Sistemas, type Solicitacao, type TipoErp } from "./sistemas.ts";
 
 type Msg = Anthropic.Beta.BetaMessageParam;
 
@@ -155,6 +156,53 @@ const FERRAMENTAS: Anthropic.Beta.BetaToolUnion[] = [
     },
   },
   {
+    name: "consultar_erp",
+    description:
+      "Consulta AO VIVO o ERP da gráfica (Mubisys), só leitura: uma O.S. ou um orçamento pelo número, ou um cliente ou fornecedor pelo CPF/CNPJ. Traz o registro completo e atual (status, itens, datas, contatos). É lento (até 1 minuto): para relatório, lista, preço praticado ou soma, use as visões do banco (FATOS CONHECIDOS diz quais).",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        tipo: { type: "string", enum: [...TIPOS_ERP], description: "os, orcamento, cliente ou fornecedor." },
+        chave: { type: "string", description: "Número da O.S. ou do orçamento, ou CPF/CNPJ (só dígitos)." },
+      },
+      required: ["tipo", "chave"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "preparar_solicitacao_compra",
+    description:
+      "Prepara uma solicitação de material para o módulo Compras (a mesma que a equipe faz pelo link público). NÃO envia: logo depois da sua resposta ele vê a solicitação com o botão Solicitar, e só o toque dele manda. Use quando ele pedir para comprar, pedir ou repor material.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        itens: {
+          type: "array",
+          description: "Materiais, com descrição completa (material, cor, espessura, medida da chapa ou bobina).",
+          items: {
+            type: "object",
+            properties: {
+              descricao: { type: "string" },
+              qtd: { type: "number" },
+              unid: { type: "string", description: "un, m, m², kg, chapa, bobina, rolo..." },
+            },
+            required: ["descricao", "qtd", "unid"],
+            additionalProperties: false,
+          },
+        },
+        setor: { type: "string", description: "Setor que vai usar (ex.: Serralheria, Impressão, Instalação), ou vazio." },
+        urgencia: { type: "string", enum: ["normal", "urgente", "critica"] },
+        necessidade_em: { type: "string", description: "Data em que precisa, AAAA-MM-DD, ou vazio." },
+        justificativa: { type: "string", description: "Para que é: O.S., cliente, obra ou reposição de estoque." },
+        obra: { type: "string", description: "Obra ou área (padrão: Produção)." },
+      },
+      required: ["itens", "setor", "urgencia", "necessidade_em", "justificativa", "obra"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "criar_lembrete",
     description:
       "Cria um lembrete para o próprio dono na agenda Google dele, num calendário separado (\"Lembretes do Don Boy\"), com aviso na hora e 30 minutos antes. Não convida ninguém e não mexe nos outros calendários. Use quando ele pedir para lembrar de algo, ou para bloquear um horário só dele (treino, foco, preparação de reunião). Não precisa pedir confirmação.",
@@ -240,6 +288,7 @@ export interface RespostaTurno {
 
 export type Confirmacao =
   | { tipo: "email"; pendenteId: number; email: Email }
+  | { tipo: "compra"; pendenteId: number; solicitacao: Solicitacao }
   | { tipo: "fatos"; pendenteId: number; fatos: { id: number; conteudo: string }[]; motivo: string };
 
 // Texto comparável de um fato: sem acento, pontuação e caixa.
@@ -272,7 +321,10 @@ export class Cerebro {
   constructor(
     private readonly config: Pick<Config, "anthropicApiKey" | "modelo" | "esforco" | "fuso">,
     private readonly memoria: Memoria,
-    private readonly sistemas: Pick<Sistemas, "consultar" | "novidades" | "agenda" | "buscarEmails" | "lerEmail" | "criarLembrete">,
+    private readonly sistemas: Pick<
+      Sistemas,
+      "consultar" | "novidades" | "agenda" | "buscarEmails" | "lerEmail" | "criarLembrete" | "consultarErp"
+    >,
   ) {
     this.client = new Anthropic({ apiKey: config.anthropicApiKey });
     this.ferramentas = [...FERRAMENTAS, ...ferramentasWeb(config.fuso)];
@@ -446,6 +498,40 @@ export class Cerebro {
       } catch (e) {
         consultas.push(`${registro} (deu erro)`);
         return erro(`Erro na consulta: ${(e as Error).message}`);
+      }
+    }
+
+    if (bloco.name === "consultar_erp") {
+      const entrada = bloco.input as { tipo?: unknown; chave?: unknown };
+      const tipo = TIPOS_ERP.includes(entrada.tipo as TipoErp) ? (entrada.tipo as TipoErp) : null;
+      const chave = String(entrada.chave ?? "").replace(/\D/g, "");
+      if (!tipo || !chave) return erro(`Informe o tipo (${TIPOS_ERP.join(", ")}) e o número ou CPF/CNPJ.`);
+      const registro = `consultou o ERP ao vivo: ${tipo} ${chave}`;
+      try {
+        const resultado = await this.sistemas.consultarErp(tipo, chave);
+        consultas.push(registro);
+        return { type: "tool_result", tool_use_id: bloco.id, content: limitar(JSON.stringify(resultado)) };
+      } catch (e) {
+        consultas.push(`${registro} (deu erro)`);
+        return erro(`Erro no ERP: ${(e as Error).message}`);
+      }
+    }
+
+    if (bloco.name === "preparar_solicitacao_compra") {
+      const entrada = bloco.input as Record<string, unknown>;
+      const validacao = validarSolicitacao({ ...entrada, necessidadeEm: entrada.necessidade_em });
+      if (!validacao.ok) return erro(validacao.erro);
+      try {
+        const pendenteId = await this.memoria.criarPendente("compra", validacao.solicitacao);
+        confirmacoes.push({ tipo: "compra", pendenteId, solicitacao: validacao.solicitacao });
+        consultas.push(`preparou a solicitação de compra #${pendenteId} (esperando o botão Solicitar)`);
+        return {
+          type: "tool_result",
+          tool_use_id: bloco.id,
+          content: `Solicitação #${pendenteId} preparada, NÃO enviada. Logo depois da sua resposta ele verá a solicitação com o botão Solicitar. Na resposta, diga em uma linha que está pronta para ele conferir.`,
+        };
+      } catch (e) {
+        return erro(`Falha ao preparar: ${(e as Error).message}`);
       }
     }
 

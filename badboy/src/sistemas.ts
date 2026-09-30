@@ -28,6 +28,18 @@ export interface Lembrete {
   nota: string;
 }
 
+export const TIPOS_ERP = ["os", "orcamento", "cliente", "fornecedor"] as const;
+export type TipoErp = (typeof TIPOS_ERP)[number];
+
+export interface Solicitacao {
+  itens: { descricao: string; qtd: number; unid: string }[];
+  setor: string;
+  urgencia: "normal" | "urgente" | "critica";
+  necessidadeEm: string;
+  justificativa: string;
+  obra: string;
+}
+
 type Buscar = typeof fetch;
 
 export class Sistemas {
@@ -77,6 +89,17 @@ export class Sistemas {
   // Lembrete do dono para ele mesmo, num calendário só do Don Boy.
   async criarLembrete(lembrete: Lembrete): Promise<unknown> {
     return await this.ponte({ acao: "agenda_lembrete", lembrete });
+  }
+
+  // ERP (Mubisys) ao vivo: uma O.S. ou um orçamento pelo número, um cliente
+  // ou fornecedor pelo CPF/CNPJ. Lento (até ~1 min); relatório vem das visões.
+  async consultarErp(tipo: TipoErp, chave: string): Promise<unknown> {
+    return await this.ponte({ acao: "mubisys", tipo, chave });
+  }
+
+  // Solicitação de material ao módulo Compras. Só depois do botão do dono.
+  async solicitarCompra(solicitacao: Solicitacao): Promise<{ codigo?: string; numero?: number }> {
+    return (await this.ponte({ acao: "compras_solicitar", solicitacao })) as { codigo?: string; numero?: number };
   }
 
   // Envio de e-mail pela mesma conexão Google. Só é chamado depois do toque
