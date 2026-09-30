@@ -82,3 +82,19 @@ test("registro interno: só entra no histórico quando houve consulta", () => {
   assert.ok(salvo.includes(MARCA_REGISTRO));
   assert.ok(salvo.includes("consultou o sistema segundo: select 1 | novidades das últimas 24 h"));
 });
+
+test("agenda e Gmail vão pela ponte com a ação certa", async () => {
+  const { sistemas, chamadas } = montar();
+  await sistemas.agenda("2026-10-01", "2026-10-07");
+  await sistemas.buscarEmails("is:unread newer_than:2d", 5);
+  await sistemas.lerEmail("abc123");
+  assert.deepEqual(
+    chamadas.fetch.map((c) => JSON.parse(c.init.body as string)),
+    [
+      { acao: "agenda", de: "2026-10-01", ate: "2026-10-07" },
+      { acao: "gmail_buscar", consulta: "is:unread newer_than:2d", quantos: 5 },
+      { acao: "gmail_ler", id: "abc123" },
+    ],
+  );
+  assert.equal(chamadas.segredo, 1);
+});

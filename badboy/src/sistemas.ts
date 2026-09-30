@@ -51,6 +51,20 @@ export class Sistemas {
     ]);
   }
 
+  // Agenda e Gmail do dono, só leitura, pela conexão Google que a Central do
+  // Léo já tem no segundo projeto (a ponte usa a chave de lá; nada vem para cá).
+  async agenda(de: string, ate: string): Promise<unknown> {
+    return await this.ponte({ acao: "agenda", de, ate });
+  }
+
+  async buscarEmails(consulta: string, quantos: number): Promise<unknown> {
+    return await this.ponte({ acao: "gmail_buscar", consulta, quantos });
+  }
+
+  async lerEmail(id: string): Promise<unknown> {
+    return await this.ponte({ acao: "gmail_ler", id });
+  }
+
   private async ponte(corpo: Record<string, unknown>): Promise<unknown> {
     const token = await this.tokenDaPonte();
     const resposta = await this.buscar(this.urlPonte, {

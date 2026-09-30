@@ -38,6 +38,12 @@ Telegram ──webhook──▶ Edge Function badboy-telegram ──▶ Claude (
   da ponte fica no Vault do principal (`donboy_ponte_segundo`, lido por
   `badboy_segredo`); lá fica só o hash. O mapa do que há em cada banco vive em
   `badboy_fatos`, não no código (o repositório é público).
+- **Agenda e Gmail, só leitura** (`ver_agenda`, `buscar_emails`, `ler_email`):
+  pela conexão Google que a Central do Léo já tem no segundo projeto (escopos
+  gmail.readonly e calendar.readonly). A ponte usa a chave de renovação de lá
+  (`leo_config`) e as credenciais do app (`GOOGLE_CLIENT_ID`/`SECRET` daquele
+  projeto); o Don Boy recebe só eventos e e-mails. Não envia e-mail nem mexe
+  na agenda.
 - **Novidades** (`novidades_nos_sistemas`): o que foi criado ou atualizado nas
   últimas horas nos dois bancos (migração `0003`). Quando o dono diz que
   atualizou algo, o Don Boy olha aqui antes de responder.
@@ -90,7 +96,7 @@ badboy/
 │   └── telegram-util.ts  # divisão de mensagens, confirmação, datas
 ├── supabase/migrations/            # projeto principal (0001 a 0003)
 ├── supabase/migrations-segundo/    # segundo projeto (papel de leitura)
-├── ponte-segundo/index.ts          # Edge Function donboy-ponte do segundo projeto
+├── ponte-segundo/                  # Edge Function donboy-ponte do segundo projeto (banco + Google)
 ├── tests/
 └── deno.json             # versões dos pacotes na Edge Function
 ```

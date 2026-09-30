@@ -94,6 +94,50 @@ const FERRAMENTAS: Anthropic.Beta.BetaToolUnion[] = [
     },
   },
   {
+    name: "ver_agenda",
+    description:
+      "Mostra os compromissos da agenda Google do dono entre duas datas (inclusive), de todas as agendas visíveis na conta, com horário de Brasília. Só leitura.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        de: { type: "string", description: "Data inicial, AAAA-MM-DD." },
+        ate: { type: "string", description: "Data final, AAAA-MM-DD (a mesma de 'de' para um dia só)." },
+      },
+      required: ["de", "ate"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "buscar_emails",
+    description:
+      "Busca e-mails no Gmail do dono com a sintaxe de busca do Gmail (from:, to:, subject:, newer_than:3d, older_than:, is:unread, has:attachment, label:, palavras). Devolve id, remetente, assunto, data e um trecho de cada e-mail. Só leitura.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        consulta: { type: "string", description: "A busca, como no campo de busca do Gmail." },
+        quantos: { type: "integer", description: "Quantos e-mails, de 1 a 20." },
+      },
+      required: ["consulta", "quantos"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "ler_email",
+    description:
+      "Lê um e-mail inteiro pelo id que veio de buscar_emails: remetente, destinatários, assunto, data, corpo em texto e nomes dos anexos. Só leitura.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "O id do e-mail, como veio de buscar_emails." },
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "gerar_documento",
     description:
       "Gera um documento e o envia ao dono no Telegram, logo depois da sua resposta. Use quando ele pedir um documento: contrato, proposta, ata, carta, relatório, roteiro, checklist. Word (docx) quando ele for editar ou assinar depois; PDF quando for enviar pronto. Na dúvida, docx.",
@@ -140,7 +184,7 @@ export class Cerebro {
   constructor(
     private readonly config: Pick<Config, "anthropicApiKey" | "modelo" | "esforco">,
     private readonly memoria: Memoria,
-    private readonly sistemas: Pick<Sistemas, "consultar" | "novidades">,
+    private readonly sistemas: Pick<Sistemas, "consultar" | "novidades" | "agenda" | "buscarEmails" | "lerEmail">,
   ) {
     this.client = new Anthropic({ apiKey: config.anthropicApiKey });
   }
@@ -236,6 +280,37 @@ export class Cerebro {
       const horas = Math.min(Math.max(Math.trunc(Number((bloco.input as { horas?: unknown }).horas) || 24), 1), 720);
       consultas.push(`novidades das últimas ${horas} h nos dois sistemas`);
       return { type: "tool_result", tool_use_id: bloco.id, content: limitar(JSON.stringify(await this.sistemas.novidades(horas))) };
+    }
+
+    if (bloco.name === "ver_agenda" || bloco.name === "buscar_emails" || bloco.name === "ler_email") {
+      const entrada = bloco.input as { de?: unknown; ate?: unknown; consulta?: unknown; quantos?: unknown; id?: unknown };
+      let registro: string;
+      let buscar: () => Promise<unknown>;
+      if (bloco.name === "ver_agenda") {
+        const de = String(entrada.de ?? "").trim();
+        const ate = String(entrada.ate ?? "").trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(de) || !/^\d{4}-\d{2}-\d{2}$/.test(ate)) return erro("Datas no formato AAAA-MM-DD.");
+        registro = `viu a agenda de ${de} a ${ate}`;
+        buscar = () => this.sistemas.agenda(de, ate);
+      } else if (bloco.name === "buscar_emails") {
+        const consulta = String(entrada.consulta ?? "").trim();
+        const quantos = Math.min(Math.max(Math.trunc(Number(entrada.quantos)) || 10, 1), 20);
+        registro = `buscou e-mails: ${consulta.slice(0, 120) || "(caixa de entrada)"}`;
+        buscar = () => this.sistemas.buscarEmails(consulta, quantos);
+      } else {
+        const id = String(entrada.id ?? "").trim();
+        if (!/^[A-Za-z0-9_-]+$/.test(id)) return erro("Id de e-mail inválido.");
+        registro = `leu o e-mail ${id}`;
+        buscar = () => this.sistemas.lerEmail(id);
+      }
+      try {
+        const resultado = await buscar();
+        consultas.push(registro);
+        return { type: "tool_result", tool_use_id: bloco.id, content: limitar(JSON.stringify(resultado)) };
+      } catch (e) {
+        consultas.push(`${registro} (deu erro)`);
+        return erro(`Erro no Google: ${(e as Error).message}`);
+      }
     }
 
     if (bloco.name === "ver_estrutura_banco" || bloco.name === "consultar_banco") {
