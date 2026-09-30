@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MARCA_REGISTRO, comRegistroInterno } from "../src/claude.ts";
+import { MARCA_REGISTRO, comRegistroInterno, extrairTexto, usoDaInternet } from "../src/claude.ts";
 import { SEGREDO_PONTE, Sistemas } from "../src/sistemas.ts";
 
 const URL = "https://segundo.invalid/functions/v1/donboy-ponte";
@@ -97,4 +97,22 @@ test("agenda e Gmail vão pela ponte com a ação certa", async () => {
     ],
   );
   assert.equal(chamadas.segredo, 1);
+});
+
+test("texto com citações da internet: blocos seguidos viram uma frase só", () => {
+  const blocos = [
+    { type: "thinking", thinking: "...", signature: "x" },
+    { type: "text", text: "Deixa eu ver." },
+    { type: "server_tool_use", id: "s1", name: "web_search", input: { query: "dólar hoje" } },
+    { type: "web_search_tool_result", tool_use_id: "s1", content: [] },
+    { type: "text", text: "O dólar fechou a " },
+    { type: "text", text: "R$ 5,31", citations: [{ type: "web_search_result_location" }] },
+    { type: "text", text: " hoje." },
+  ] as never;
+  assert.equal(extrairTexto(blocos), "Deixa eu ver.\n\nO dólar fechou a R$ 5,31 hoje.");
+  assert.deepEqual(usoDaInternet(blocos), ["pesquisou na internet: dólar hoje"]);
+  assert.deepEqual(
+    usoDaInternet([{ type: "server_tool_use", id: "s2", name: "web_fetch", input: { url: "https://exemplo.com" } }] as never),
+    ["leu a página https://exemplo.com"],
+  );
 });

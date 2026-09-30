@@ -106,6 +106,22 @@ test("custo: fallback cobra cada iteração pelo modelo que rodou", () => {
   ]);
 });
 
+test("custo: cada busca na internet soma US$ 0,01", () => {
+  const resposta = {
+    model: "claude-opus-5-5",
+    usage: {
+      cache_creation: null,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+      input_tokens: 1_000_000,
+      output_tokens: 0,
+      server_tool_use: { web_search_requests: 3, web_fetch_requests: 2 },
+    },
+  } as never;
+  const [custo] = custosDaResposta(resposta);
+  assert.equal(custo!.custoUsd.toFixed(2), "4.03");
+});
+
 test("config: exige as chaves e valida o ID do dono", () => {
   assert.throws(() => lerConfig({}), /TELEGRAM_BOT_TOKEN.*ANTHROPIC_API_KEY.*SUPABASE_SECRET_KEY/);
   const env = {
@@ -116,8 +132,8 @@ test("config: exige as chaves e valida o ID do dono", () => {
     SUPABASE_SECRET_KEY: "s",
   };
   const c = lerConfig(env);
-  assert.equal(c.modelo, "claude-sonnet-5-5");
-  assert.equal(c.esforco, "low");
+  assert.equal(c.modelo, "claude-opus-5-5");
+  assert.equal(c.esforco, "medium");
   assert.equal(c.donoId, 123);
   assert.throws(() => lerConfig({ ...env, TELEGRAM_DONO_ID: "@leo" }), /ID numérico/);
 

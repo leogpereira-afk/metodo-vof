@@ -12,8 +12,9 @@ type Msg = Anthropic.Beta.BetaMessageParam;
 // reexecuta o pedido no modelo recomendado para aquela categoria.
 const BETAS: Anthropic.Beta.AnthropicBeta[] = ["server-side-fallback-2026-07-01"];
 // Consultar o banco costuma levar algumas voltas (estrutura → consulta →
-// ajuste), então o teto é mais alto que o de uma conversa simples.
-const MAX_VOLTAS_FERRAMENTA = 10;
+// ajuste), então o teto é mais alto que o de uma conversa simples. Conta
+// também as pausas do servidor durante pesquisas longas na internet.
+const MAX_VOLTAS_FERRAMENTA = 12;
 const LIMITE_RESULTADO = 15_000;
 
 export const SQL_TABELAS = `select c.relname as tabela, greatest(c.reltuples, 0)::bigint as linhas_aprox, obj_description(c.oid) as descricao
@@ -159,6 +160,21 @@ const FERRAMENTAS: Anthropic.Beta.BetaToolUnion[] = [
   },
 ];
 
+// Internet: pesquisa e leitura de páginas rodam nos servidores da Anthropic
+// (a versão 20260209 filtra os resultados antes de chegarem ao contexto). O
+// fuso vem da configuração e deixa "hoje" e "agora" certos nas buscas.
+function ferramentasWeb(fuso: string): Anthropic.Beta.BetaToolUnion[] {
+  return [
+    {
+      type: "web_search_20260209",
+      name: "web_search",
+      max_uses: 6,
+      user_location: { type: "approximate", country: "BR", timezone: fuso },
+    },
+    { type: "web_fetch_20260209", name: "web_fetch", max_uses: 6, max_content_tokens: 20_000 },
+  ];
+}
+
 export interface RespostaTurno {
   texto: string;
   usos: RegistroUso[];
@@ -180,13 +196,16 @@ export function comRegistroInterno(texto: string, consultas: string[]): string {
 
 export class Cerebro {
   private readonly client: Anthropic;
+  // Lista fixa e sempre na mesma ordem: faz parte do prefixo cacheado.
+  private readonly ferramentas: Anthropic.Beta.BetaToolUnion[];
 
   constructor(
-    private readonly config: Pick<Config, "anthropicApiKey" | "modelo" | "esforco">,
+    private readonly config: Pick<Config, "anthropicApiKey" | "modelo" | "esforco" | "fuso">,
     private readonly memoria: Memoria,
     private readonly sistemas: Pick<Sistemas, "consultar" | "novidades" | "agenda" | "buscarEmails" | "lerEmail">,
   ) {
     this.client = new Anthropic({ apiKey: config.anthropicApiKey });
+    this.ferramentas = [...FERRAMENTAS, ...ferramentasWeb(config.fuso)];
   }
 
   async responder(historico: Mensagem[], hoje: string): Promise<RespostaTurno> {
@@ -204,6 +223,9 @@ export class Cerebro {
     const anexos: Anexo[] = [];
     const consultas: string[] = [];
     let fatosSalvos = 0;
+    // Blocos de respostas pausadas pelo servidor (pesquisa longa): a resposta
+    // final continua de onde parou, então o texto delas entra no final.
+    let pausado: Anthropic.Beta.BetaContentBlock[] = [];
 
     for (let volta = 0; volta <= MAX_VOLTAS_FERRAMENTA; volta++) {
       const resposta = await this.client.beta.messages.create({
@@ -215,7 +237,7 @@ export class Cerebro {
         output_config: { effort: this.config.esforco },
         cache_control: { type: "ephemeral" },
         system,
-        tools: FERRAMENTAS,
+        tools: this.ferramentas,
         messages,
       });
       // Registra o gasto a cada chamada: se uma volta seguinte falhar, o que
@@ -236,16 +258,27 @@ export class Cerebro {
         };
       }
 
+      consultas.push(...usoDaInternet(resposta.content));
+
+      // Pausa do servidor numa pesquisa longa: devolve o turno como veio, sem
+      // mensagem nova do dono, e a API continua de onde parou.
+      if (resposta.stop_reason === "pause_turn") {
+        juntarAoAssistente(messages, resposta.content);
+        pausado = [...pausado, ...resposta.content];
+        continue;
+      }
+
       if (resposta.stop_reason !== "tool_use") {
-        const texto = extrairTexto(resposta.content);
+        const texto = extrairTexto([...pausado, ...resposta.content]);
         const cortada = resposta.stop_reason === "max_tokens" ? "\n\n(resposta cortada no limite de tamanho)" : "";
         return { texto: (texto || "(sem resposta)") + cortada, usos, fatosSalvos, anexos, consultas };
       }
 
       // Volta de ferramenta: devolve o turno do assistente sem alterar nada
       // (inclui os blocos de raciocínio) e responde a TODAS as chamadas numa
-      // única mensagem.
-      messages.push({ role: "assistant", content: resposta.content });
+      // única mensagem. O texto até aqui era preâmbulo e não vai ao dono.
+      juntarAoAssistente(messages, resposta.content);
+      pausado = [];
       const resultados: Anthropic.Beta.BetaToolResultBlockParam[] = [];
       for (const bloco of resposta.content) {
         if (bloco.type !== "tool_use") continue;
@@ -379,10 +412,43 @@ function limitar(texto: string): string {
     : texto;
 }
 
-function extrairTexto(conteudo: Anthropic.Beta.BetaContentBlock[]): string {
-  return conteudo
-    .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("\n")
-    .trim();
+// Continuação de uma pausa chega como resposta nova do mesmo turno: junta os
+// blocos na última mensagem do assistente em vez de abrir outra.
+function juntarAoAssistente(messages: Msg[], conteudo: Anthropic.Beta.BetaContentBlock[]): void {
+  const ultima = messages.at(-1);
+  if (ultima?.role === "assistant" && Array.isArray(ultima.content)) {
+    ultima.content = [...ultima.content, ...conteudo];
+  } else {
+    messages.push({ role: "assistant", content: conteudo });
+  }
+}
+
+// O que ele pesquisou e leu na internet, para o registro interno do turno.
+export function usoDaInternet(conteudo: Anthropic.Beta.BetaContentBlock[]): string[] {
+  const usos: string[] = [];
+  for (const bloco of conteudo) {
+    if (bloco.type !== "server_tool_use") continue;
+    const entrada = bloco.input as { query?: unknown; url?: unknown };
+    if (bloco.name === "web_search") usos.push(`pesquisou na internet: ${String(entrada.query ?? "").slice(0, 120)}`);
+    if (bloco.name === "web_fetch") usos.push(`leu a página ${String(entrada.url ?? "").slice(0, 200)}`);
+  }
+  return usos;
+}
+
+// Texto da resposta. Com pesquisa na internet, uma frase vem partida em
+// vários blocos (cada trecho com a sua citação): blocos seguidos se juntam
+// sem separador; trechos separados por uma ferramenta, com linha em branco.
+export function extrairTexto(conteudo: Anthropic.Beta.BetaContentBlock[]): string {
+  const trechos: string[] = [];
+  let atual = "";
+  for (const bloco of conteudo) {
+    if (bloco.type === "text") {
+      atual += bloco.text;
+    } else if (bloco.type !== "thinking" && bloco.type !== "redacted_thinking" && atual.trim()) {
+      trechos.push(atual.trim());
+      atual = "";
+    }
+  }
+  if (atual.trim()) trechos.push(atual.trim());
+  return trechos.join("\n\n");
 }

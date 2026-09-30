@@ -7,6 +7,8 @@
 //
 // GET  /badboy-telegram  → registra o webhook e o menu no Telegram (idempotente)
 //                          e devolve um diagnóstico, sem expor nenhuma chave
+// GET  ?pergunta=...      → pergunta de teste, fora do Telegram (exige o token
+//                          da ponte no header x-donboy-token)
 // POST /badboy-telegram  → updates do Telegram (com token secreto)
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -15,7 +17,8 @@ import { COMANDOS, criarBot } from "./bot.ts";
 import { Cerebro } from "./claude.ts";
 import { lerConfig, type Ambiente, type Config } from "./config.ts";
 import { Memoria } from "./memoria.ts";
-import { Sistemas } from "./sistemas.ts";
+import { SEGREDO_PONTE, Sistemas } from "./sistemas.ts";
+import { dataPorExtenso } from "./telegram-util.ts";
 
 declare const EdgeRuntime: { waitUntil(promessa: Promise<unknown>): void };
 
@@ -51,6 +54,7 @@ interface Contexto {
   bot: Bot;
   memoria: Memoria;
   sistemas: Sistemas;
+  cerebro: Cerebro;
   segredo: string;
 }
 
@@ -62,9 +66,10 @@ function preparar(): Promise<Contexto> {
     const config = lerConfig(ambiente());
     const memoria = new Memoria(config);
     const sistemas = new Sistemas(memoria, config.urlPonte);
-    const bot = criarBot(config, memoria, new Cerebro(config, memoria, sistemas));
+    const cerebro = new Cerebro(config, memoria, sistemas);
+    const bot = criarBot(config, memoria, cerebro);
     await bot.init();
-    return { config, bot, memoria, sistemas, segredo: await segredoWebhook(config.telegramToken) };
+    return { config, bot, memoria, sistemas, cerebro, segredo: await segredoWebhook(config.telegramToken) };
   })();
   contexto.catch(() => {
     contexto = null; // segredo cadastrado depois: tenta de novo na próxima
@@ -172,8 +177,38 @@ async function configurarEDiagnosticar(): Promise<Record<string, unknown>> {
   return { pronto: tudoOk && (resultado.webhook as { configurado: boolean }).configurado, ...resultado };
 }
 
+async function hashHex(texto: string): Promise<string> {
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texto)));
+  return Array.from(hash, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Pergunta de teste: roda o cérebro inteiro (sistemas, agenda, internet) numa
+// conversa avulsa, sem Telegram e sem histórico, e devolve a resposta. Serve
+// para conferir a qualidade depois de publicar. Só com o token da ponte (o
+// mesmo do Vault): ninguém de fora gasta a API nem lê dados por aqui.
+async function perguntaDeTeste(req: Request, pergunta: string): Promise<Response> {
+  const ctx = await preparar();
+  const esperado = await ctx.memoria.segredo(SEGREDO_PONTE);
+  const recebido = req.headers.get("x-donboy-token") ?? "";
+  if (!esperado || (await hashHex(recebido)) !== (await hashHex(esperado))) {
+    return new Response("não autorizado", { status: 401 });
+  }
+  const inicio = Date.now();
+  const r = await ctx.cerebro.responder([{ papel: "user", conteudo: pergunta.slice(0, 2000) }], dataPorExtenso(new Date(), ctx.config.fuso));
+  return json({
+    texto: r.texto,
+    consultas: r.consultas,
+    anexos: r.anexos.map((a) => a.nome),
+    modelos: [...new Set(r.usos.map((u) => u.modelo))],
+    custo_usd: Number(r.usos.reduce((soma, u) => soma + u.custoUsd, 0).toFixed(4)),
+    segundos: Math.round((Date.now() - inicio) / 1000),
+  });
+}
+
 Deno.serve(async (req) => {
   try {
+    const pergunta = req.method === "GET" ? new URL(req.url).searchParams.get("pergunta") : null;
+    if (pergunta) return await perguntaDeTeste(req, pergunta);
     if (req.method === "GET") return json(await configurarEDiagnosticar());
     if (req.method !== "POST") return new Response("método não permitido", { status: 405 });
 

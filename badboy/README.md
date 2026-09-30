@@ -10,7 +10,7 @@ Supabase para tudo: memória (Postgres) e execução (Edge Function
 `badboy-telegram`, no projeto **Projetos Léo**). Não há servidor próprio.
 
 ```
-Telegram ──webhook──▶ Edge Function badboy-telegram ──▶ Claude (Sonnet 5.5)
+Telegram ──webhook──▶ Edge Function badboy-telegram ──▶ Claude (Opus 5.5)
                                │
                                └──▶ Postgres: badboy_mensagens, badboy_fatos, badboy_uso
 ```
@@ -47,8 +47,12 @@ Telegram ──webhook──▶ Edge Function badboy-telegram ──▶ Claude (
 - **Novidades** (`novidades_nos_sistemas`): o que foi criado ou atualizado nas
   últimas horas nos dois bancos (migração `0003`). Quando o dono diz que
   atualizou algo, o Don Boy olha aqui antes de responder.
+- **Internet** (`web_search` e `web_fetch`, ferramentas do servidor da
+  Anthropic): câmbio, notícias, preços, leis, fornecedores, links que o dono
+  manda. Cada busca custa US$ 0,01 além dos tokens e entra no `/custo`.
 - O histórico guarda, junto de cada resposta, um registro interno das
-  consultas feitas naquele turno: o Don Boy não desmente o que já consultou.
+  consultas feitas naquele turno (bancos, agenda, e-mails e internet): o Don
+  Boy não desmente o que já consultou.
 
 ## Configuração (uma vez)
 
@@ -66,8 +70,8 @@ Depois, abrir `https://reoghclxripktzpdwhiy.supabase.co/functions/v1/badboy-tele
 no navegador: registra o webhook no Telegram e mostra um diagnóstico
 (`"pronto": true` quando está tudo certo). Nenhuma chave aparece ali.
 
-Opcionais: `CLAUDE_MODELO` (padrão `claude-sonnet-5-5`), `CLAUDE_ESFORCO`
-(padrão `low`), `FUSO` (padrão `America/Sao_Paulo`), `DONBOY_PONTE_URL`
+Opcionais: `CLAUDE_MODELO` (padrão `claude-opus-5-5`), `CLAUDE_ESFORCO`
+(padrão `medium`), `FUSO` (padrão `America/Sao_Paulo`), `DONBOY_PONTE_URL`
 (padrão: a `donboy-ponte` do segundo projeto).
 
 Ponte para o segundo banco (uma vez, sem colar chave nenhuma):
@@ -108,6 +112,11 @@ npm install
 npm run typecheck   # Node (tsc) + Deno (deno check src/edge.ts)
 npm test
 ```
+
+Pergunta de teste depois de publicar, fora do Telegram e sem mexer no
+histórico: `GET /badboy-telegram?pergunta=...` com o header `x-donboy-token`
+(o token da ponte, que só existe no Vault). Devolve a resposta, o que foi
+consultado, o custo e o tempo. Sem o token, 401.
 
 Publicar uma nova versão: deploy da função `badboy-telegram` com
 `src/*.ts` + `deno.json`, entrypoint `src/edge.ts`, `verify_jwt` desligado (quem
