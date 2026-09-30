@@ -9,7 +9,7 @@ memória no Supabase, deploy no Railway.
 - Conversa com `claude-sonnet-5-5` (padrão), pensamento adaptativo em esforço `low`.
 - **Prompt caching**: ferramentas + instruções fixas (`src/prompt.ts`) com ponto de cache explícito; a conversa usa o cache automático. O histórico enviado anda de 20 em 20 mensagens para o cache não quebrar a cada turno.
 - **Fallback do servidor** (`fallbacks: "default"`): se o modelo recusar por política, a API tenta de novo no modelo recomendado.
-- **Memória** no Supabase: `mensagens` (histórico), `fatos` (o que ela aprende), `uso` (tokens e custo de cada chamada).
+- **Memória** no Supabase: `badboy_mensagens` (histórico), `badboy_fatos` (o que ela aprende), `badboy_uso` (tokens e custo de cada chamada).
 - Ela aprende sozinha: quando você diz algo duradouro, o modelo chama a ferramenta `salvar_fato`.
 - Ações irreversíveis (`/esquecer`, `/limpar`) só com **botão de confirmação**, que expira em 10 min.
 
@@ -42,9 +42,11 @@ badboy/
 
 ## Banco (Supabase)
 
-Rode `supabase/migrations/0001_badboy_init.sql` no SQL Editor de um projeto
-**dedicado** à BadBoy. RLS fica ligado sem policies: só a chave secreta do
-servidor acessa; a chave pública não lê nada.
+Aplicado no projeto **Projetos Léo** (tabelas `badboy_mensagens`,
+`badboy_fatos`, `badboy_uso` e função `badboy_resumo_custo_mes`). RLS fica
+ligado sem policies: só a chave secreta do servidor acessa; a chave pública
+não lê nada. Atenção: a chave secreta do projeto abre TODAS as tabelas dele,
+não só as da BadBoy. Guarde-a só nas variáveis do Railway.
 
 ## Rodar local
 

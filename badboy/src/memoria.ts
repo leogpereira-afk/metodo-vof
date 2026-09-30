@@ -39,13 +39,13 @@ export class Memoria {
   }
 
   async salvarMensagem(chatId: number, papel: Papel, conteudo: string): Promise<void> {
-    const { error } = await this.db.from("mensagens").insert({ chat_id: chatId, papel, conteudo });
+    const { error } = await this.db.from("badboy_mensagens").insert({ chat_id: chatId, papel, conteudo });
     if (error) throw new Error(`Supabase (salvar mensagem): ${error.message}`);
   }
 
   async historico(chatId: number): Promise<Mensagem[]> {
     const { count, error: erroContagem } = await this.db
-      .from("mensagens")
+      .from("badboy_mensagens")
       .select("id", { count: "exact", head: true })
       .eq("chat_id", chatId);
     if (erroContagem) throw new Error(`Supabase (contar histórico): ${erroContagem.message}`);
@@ -54,7 +54,7 @@ export class Memoria {
     if (quantas === 0) return [];
 
     const { data, error } = await this.db
-      .from("mensagens")
+      .from("badboy_mensagens")
       .select("papel, conteudo")
       .eq("chat_id", chatId)
       .order("id", { ascending: false })
@@ -69,7 +69,7 @@ export class Memoria {
 
   async apagarHistorico(chatId: number): Promise<number> {
     const { count, error } = await this.db
-      .from("mensagens")
+      .from("badboy_mensagens")
       .delete({ count: "exact" })
       .eq("chat_id", chatId);
     if (error) throw new Error(`Supabase (apagar histórico): ${error.message}`);
@@ -78,7 +78,7 @@ export class Memoria {
 
   async salvarFato(conteudo: string, origem: Fato["origem"]): Promise<number> {
     const { data, error } = await this.db
-      .from("fatos")
+      .from("badboy_fatos")
       .insert({ conteudo, origem })
       .select("id")
       .single();
@@ -88,7 +88,7 @@ export class Memoria {
 
   async listarFatos(): Promise<Fato[]> {
     const { data, error } = await this.db
-      .from("fatos")
+      .from("badboy_fatos")
       .select("id, conteudo, origem, criado_em")
       .order("id", { ascending: true });
     if (error) throw new Error(`Supabase (listar fatos): ${error.message}`);
@@ -102,7 +102,7 @@ export class Memoria {
 
   async buscarFato(id: number): Promise<Fato | null> {
     const { data, error } = await this.db
-      .from("fatos")
+      .from("badboy_fatos")
       .select("id, conteudo, origem, criado_em")
       .eq("id", id)
       .maybeSingle();
@@ -117,14 +117,14 @@ export class Memoria {
   }
 
   async apagarFato(id: number): Promise<boolean> {
-    const { count, error } = await this.db.from("fatos").delete({ count: "exact" }).eq("id", id);
+    const { count, error } = await this.db.from("badboy_fatos").delete({ count: "exact" }).eq("id", id);
     if (error) throw new Error(`Supabase (apagar fato): ${error.message}`);
     return (count ?? 0) > 0;
   }
 
   async registrarUso(registros: RegistroUso[]): Promise<void> {
     if (registros.length === 0) return;
-    const { error } = await this.db.from("uso").insert(
+    const { error } = await this.db.from("badboy_uso").insert(
       registros.map((r) => ({
         modelo: r.modelo,
         input_tokens: r.inputTokens,
@@ -138,7 +138,7 @@ export class Memoria {
   }
 
   async resumoDoMes(fuso: string): Promise<ResumoMes> {
-    const { data, error } = await this.db.rpc("resumo_custo_mes", { p_fuso: fuso }).single();
+    const { data, error } = await this.db.rpc("badboy_resumo_custo_mes", { p_fuso: fuso }).single();
     if (error) throw new Error(`Supabase (resumo do mês): ${error.message}`);
     const r = data as Record<string, number | string>;
     return {
