@@ -2,6 +2,8 @@
   "imports": {
     "@anthropic-ai/sdk": "npm:@anthropic-ai/sdk@0.129.0",
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2.117.2",
-    "grammy": "npm:grammy@1.46.0"
+    "docx": "npm:docx@9.8.1",
+    "grammy": "npm:grammy@1.46.0",
+    "pdf-lib": "npm:pdf-lib@1.17.1"
   }
 }

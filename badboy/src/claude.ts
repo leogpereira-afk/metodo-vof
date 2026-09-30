@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Config } from "./config.ts";
 import { custosDaResposta, type RegistroUso } from "./custo.ts";
+import { gerarDocumento, type Anexo, type Formato } from "./documentos.ts";
 import type { Memoria, Mensagem } from "./memoria.ts";
 import { INSTRUCOES_FIXAS, blocoVariavel } from "./prompt.ts";
 
@@ -31,12 +32,33 @@ const FERRAMENTAS: Anthropic.Beta.BetaToolUnion[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "gerar_documento",
+    description:
+      "Gera um documento e o envia ao dono no Telegram, logo depois da sua resposta. Use quando ele pedir um documento: contrato, proposta, ata, carta, relatório, roteiro, checklist. Word (docx) quando ele for editar ou assinar depois; PDF quando for enviar pronto. Na dúvida, docx.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        titulo: { type: "string", description: "Título do documento; também vira o nome do arquivo." },
+        formato: { type: "string", enum: ["docx", "pdf"] },
+        conteudo: {
+          type: "string",
+          description:
+            "Texto completo, pronto para uso. Formatação simples: '# ' título, '## ' subtítulo, '### ' seção, '- ' item de lista, linha em branco entre parágrafos, **negrito** dentro do texto.",
+        },
+      },
+      required: ["titulo", "formato", "conteudo"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 export interface RespostaTurno {
   texto: string;
   usos: RegistroUso[];
   fatosSalvos: number;
+  anexos: Anexo[];
 }
 
 export class Cerebro {
@@ -61,6 +83,7 @@ export class Cerebro {
 
     const messages: Msg[] = historico.map((m) => ({ role: m.papel, content: m.conteudo }));
     const usos: RegistroUso[] = [];
+    const anexos: Anexo[] = [];
     let fatosSalvos = 0;
 
     for (let volta = 0; volta <= MAX_VOLTAS_FERRAMENTA; volta++) {
@@ -89,13 +112,14 @@ export class Cerebro {
           texto: "Não consigo ajudar com esse pedido específico. Reformule ou siga por outro caminho.",
           usos,
           fatosSalvos,
+          anexos,
         };
       }
 
       if (resposta.stop_reason !== "tool_use") {
         const texto = extrairTexto(resposta.content);
         const cortada = resposta.stop_reason === "max_tokens" ? "\n\n(resposta cortada no limite de tamanho)" : "";
-        return { texto: (texto || "(sem resposta)") + cortada, usos, fatosSalvos };
+        return { texto: (texto || "(sem resposta)") + cortada, usos, fatosSalvos, anexos };
       }
 
       // Volta de ferramenta: devolve o turno do assistente sem alterar nada
@@ -105,7 +129,7 @@ export class Cerebro {
       const resultados: Anthropic.Beta.BetaToolResultBlockParam[] = [];
       for (const bloco of resposta.content) {
         if (bloco.type !== "tool_use") continue;
-        resultados.push(await this.executarFerramenta(bloco));
+        resultados.push(await this.executarFerramenta(bloco, anexos));
         if (bloco.name === "salvar_fato" && !resultados.at(-1)?.is_error) fatosSalvos++;
       }
       messages.push({ role: "user", content: resultados });
@@ -115,11 +139,13 @@ export class Cerebro {
       texto: "Parei: muitas voltas de ferramenta seguidas. Tente de novo com um pedido mais direto.",
       usos,
       fatosSalvos,
+      anexos,
     };
   }
 
   private async executarFerramenta(
     bloco: Anthropic.Beta.BetaToolUseBlock,
+    anexos: Anexo[],
   ): Promise<Anthropic.Beta.BetaToolResultBlockParam> {
     const erro = (mensagem: string): Anthropic.Beta.BetaToolResultBlockParam => ({
       type: "tool_result",
@@ -127,6 +153,25 @@ export class Cerebro {
       is_error: true,
       content: mensagem,
     });
+
+    if (bloco.name === "gerar_documento") {
+      const entrada = bloco.input as { titulo?: unknown; formato?: unknown; conteudo?: unknown };
+      const titulo = typeof entrada.titulo === "string" ? entrada.titulo.trim() : "";
+      const conteudo = typeof entrada.conteudo === "string" ? entrada.conteudo : "";
+      const formato = entrada.formato === "pdf" || entrada.formato === "docx" ? (entrada.formato as Formato) : null;
+      if (!titulo || !conteudo.trim() || !formato) return erro("Informe titulo, formato (docx ou pdf) e conteudo.");
+      try {
+        const anexo = await gerarDocumento(titulo, formato, conteudo);
+        anexos.push(anexo);
+        return {
+          type: "tool_result",
+          tool_use_id: bloco.id,
+          content: `Documento ${anexo.nome} gerado; será enviado logo depois da sua resposta.`,
+        };
+      } catch (e) {
+        return erro(`Falha ao gerar o documento: ${(e as Error).message}`);
+      }
+    }
 
     if (bloco.name !== "salvar_fato") return erro(`Ferramenta desconhecida: ${bloco.name}`);
 
