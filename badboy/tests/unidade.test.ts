@@ -120,5 +120,12 @@ test("config: exige as chaves e valida o ID do dono", () => {
   assert.equal(c.esforco, "low");
   assert.equal(c.donoId, 123);
   assert.throws(() => lerConfig({ ...env, TELEGRAM_DONO_ID: "@leo" }), /ID numérico/);
+
+  // Mensagem inteira do @BotFather colada no lugar do token: extrai só o token.
+  const token = "7123456789:AAHk3abcdefghijklmnopqrstuvwxyz_-01";
+  const colado = `Done! Use this token to access the HTTP API:\n${token}\nKeep your token secure`;
+  assert.equal(lerConfig({ ...env, TELEGRAM_BOT_TOKEN: colado }).telegramToken, token);
+  // Token partido por quebra de linha ao colar: junta as partes.
+  assert.equal(lerConfig({ ...env, TELEGRAM_BOT_TOKEN: "7123456789:AAHk3abcdefghij\nklmnopqrstuvwxyz_-01" }).telegramToken, token);
   assert.throws(() => lerConfig({ ...env, CLAUDE_ESFORCO: "turbo" }), /CLAUDE_ESFORCO/);
 });

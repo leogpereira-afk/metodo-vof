@@ -26,7 +26,7 @@ export function lerConfig(env: Ambiente): Config {
     return valor ?? "";
   };
 
-  const telegramToken = obrigatoria("TELEGRAM_BOT_TOKEN");
+  const telegramToken = extrairTokenTelegram(obrigatoria("TELEGRAM_BOT_TOKEN"));
   const donoIdTexto = obrigatoria("TELEGRAM_DONO_ID");
   const anthropicApiKey = obrigatoria("ANTHROPIC_API_KEY");
   const supabaseUrl = obrigatoria("SUPABASE_URL");
@@ -56,4 +56,16 @@ export function lerConfig(env: Ambiente): Config {
     supabaseChave,
     fuso: env.FUSO?.trim() || "America/Sao_Paulo",
   };
+}
+
+const TOKEN_TELEGRAM = /\d{5,}:[A-Za-z0-9_-]{30,}/;
+
+// Token colado com sujeira: a mensagem inteira do @BotFather (texto + token)
+// ou o token partido por uma quebra de linha. Pega só "números:letras".
+export function extrairTokenTelegram(colado: string): string {
+  return (
+    TOKEN_TELEGRAM.exec(colado)?.[0] ??
+    TOKEN_TELEGRAM.exec(colado.replace(/\s+/g, ""))?.[0] ??
+    colado
+  );
 }

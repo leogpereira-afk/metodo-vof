@@ -74,6 +74,25 @@ const json = (corpo: unknown, status = 200) =>
     headers: { "Content-Type": "application/json; charset=utf-8" },
   });
 
+// Confere só o FORMATO de cada segredo (sim/não), nunca o valor: acha token
+// colado pela metade, com espaço no meio ou trocado de lugar com outro.
+function formatoDosSegredos(env: Ambiente): Record<string, boolean> {
+  const token = env.TELEGRAM_BOT_TOKEN?.trim() ?? "";
+  const dono = env.TELEGRAM_DONO_ID?.trim() ?? "";
+  const anthropic = env.ANTHROPIC_API_KEY?.trim() ?? "";
+  return {
+    telegram_token_no_formato_certo: /^\d{5,}:[A-Za-z0-9_-]{30,}$/.test(token),
+    telegram_token_encontrado_no_texto: /\d{5,}:[A-Za-z0-9_-]{30,}/.test(token),
+    telegram_token_encontrado_juntando_partes: /\d{5,}:[A-Za-z0-9_-]{30,}/.test(token.replace(/\s+/g, "")),
+    telegram_token_tem_dois_pontos: token.includes(":"),
+    telegram_token_tem_espaco_ou_quebra: /\s/.test(token),
+    telegram_token_parece_chave_anthropic: token.startsWith("sk-ant-"),
+    telegram_token_parece_link: /t\.me|http|@/.test(token),
+    dono_id_so_numeros: /^\d+$/.test(dono),
+    anthropic_no_formato_certo: /^sk-ant-\S+$/.test(anthropic),
+  };
+}
+
 async function configurarEDiagnosticar(): Promise<Record<string, unknown>> {
   const env = ambiente();
   const faltando = SEGREDOS_DO_DONO.filter((nome) => !env[nome]?.trim());
@@ -84,7 +103,7 @@ async function configurarEDiagnosticar(): Promise<Record<string, unknown>> {
     ctx = await preparar();
   } catch (e) {
     // Mensagens de lerConfig e do Telegram não carregam valores de chaves.
-    return { pronto: false, erro: (e as Error).message };
+    return { pronto: false, erro: (e as Error).message, formato: formatoDosSegredos(env) };
   }
 
   const resultado: Record<string, unknown> = { telegram: { ok: true, bot: `@${ctx.bot.botInfo.username}` } };
