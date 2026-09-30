@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Config } from "./config.ts";
 import { custosDaResposta, type RegistroUso } from "./custo.ts";
 import { gerarDocumento, type Anexo, type Formato } from "./documentos.ts";
+import { validarEmail, type Email } from "./email.ts";
 import type { Memoria, Mensagem } from "./memoria.ts";
 import { INSTRUCOES_FIXAS, blocoVariavel } from "./prompt.ts";
 import { SISTEMAS, type Sistema, type Sistemas } from "./sistemas.ts";
@@ -12,8 +13,9 @@ type Msg = Anthropic.Beta.BetaMessageParam;
 // reexecuta o pedido no modelo recomendado para aquela categoria.
 const BETAS: Anthropic.Beta.AnthropicBeta[] = ["server-side-fallback-2026-07-01"];
 // Consultar o banco costuma levar algumas voltas (estrutura → consulta →
-// ajuste), então o teto é mais alto que o de uma conversa simples.
-const MAX_VOLTAS_FERRAMENTA = 10;
+// ajuste), então o teto é mais alto que o de uma conversa simples. Conta
+// também as pausas do servidor durante pesquisas longas na internet.
+const MAX_VOLTAS_FERRAMENTA = 12;
 const LIMITE_RESULTADO = 15_000;
 
 export const SQL_TABELAS = `select c.relname as tabela, greatest(c.reltuples, 0)::bigint as linhas_aprox, obj_description(c.oid) as descricao
@@ -46,6 +48,21 @@ const FERRAMENTAS: Anthropic.Beta.BetaToolUnion[] = [
         },
       },
       required: ["fato"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "propor_apagar_fatos",
+    description:
+      "Propõe apagar fatos da memória: repetidos, errados ou substituídos por uma versão corrigida. NÃO apaga: logo depois da sua resposta ele vê o texto de cada fato com um botão Apagar, e só o toque dele apaga. Use quando ele pedir para limpar ou corrigir a memória, ou logo depois de salvar a versão corrigida de um fato.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        ids: { type: "array", items: { type: "integer" }, description: "Números dos fatos a apagar, como aparecem em FATOS CONHECIDOS." },
+        motivo: { type: "string", description: "Por que apagar, em uma frase (ex.: \"repetem o fato 5\")." },
+      },
+      required: ["ids", "motivo"],
       additionalProperties: false,
     },
   },
@@ -94,6 +111,86 @@ const FERRAMENTAS: Anthropic.Beta.BetaToolUnion[] = [
     },
   },
   {
+    name: "ver_agenda",
+    description:
+      "Mostra os compromissos da agenda Google do dono entre duas datas (inclusive), de todas as agendas visíveis na conta, com horário de Brasília. Só leitura.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        de: { type: "string", description: "Data inicial, AAAA-MM-DD." },
+        ate: { type: "string", description: "Data final, AAAA-MM-DD (a mesma de 'de' para um dia só)." },
+      },
+      required: ["de", "ate"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "buscar_emails",
+    description:
+      "Busca e-mails no Gmail do dono com a sintaxe de busca do Gmail (from:, to:, subject:, newer_than:3d, older_than:, is:unread, has:attachment, label:, palavras). Devolve id, remetente, assunto, data e um trecho de cada e-mail. Só leitura.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        consulta: { type: "string", description: "A busca, como no campo de busca do Gmail." },
+        quantos: { type: "integer", description: "Quantos e-mails, de 1 a 20." },
+      },
+      required: ["consulta", "quantos"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "ler_email",
+    description:
+      "Lê um e-mail inteiro pelo id que veio de buscar_emails: remetente, destinatários, assunto, data, corpo em texto e nomes dos anexos. Só leitura.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "O id do e-mail, como veio de buscar_emails." },
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "criar_lembrete",
+    description:
+      "Cria um lembrete para o próprio dono na agenda Google dele, num calendário separado (\"Lembretes do Don Boy\"), com aviso na hora e 30 minutos antes. Não convida ninguém e não mexe nos outros calendários. Use quando ele pedir para lembrar de algo, ou para bloquear um horário só dele (treino, foco, preparação de reunião). Não precisa pedir confirmação.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        titulo: { type: "string", description: "O que lembrar, curto e acionável (ex.: \"Ligar para o contador sobre a SCP\")." },
+        data: { type: "string", description: "Data, AAAA-MM-DD, calculada a partir da data de hoje." },
+        hora: { type: "string", description: "Hora de Brasília, HH:MM. Se ele não disser, use 08:00." },
+        duracao_min: { type: "integer", description: "Duração em minutos, de 5 a 480. Lembrete simples: 15." },
+        nota: { type: "string", description: "Detalhes úteis na hora (telefone, pauta, link), ou vazio." },
+      },
+      required: ["titulo", "data", "hora", "duracao_min", "nota"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "preparar_email",
+    description:
+      "Prepara um e-mail para o dono enviar do Gmail dele. NÃO envia: logo depois da sua resposta ele vê o e-mail inteiro com um botão Enviar, e só o toque dele manda. Use quando ele pedir para mandar, responder ou encaminhar um e-mail. Para responder, passe em responder_a o id do e-mail original (de buscar_emails) e deixe o assunto vazio para manter o dele.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        para: { type: "array", items: { type: "string" }, description: "Endereços de e-mail dos destinatários, só o endereço." },
+        cc: { type: "array", items: { type: "string" }, description: "Endereços em cópia (lista vazia se não houver)." },
+        assunto: { type: "string", description: "Assunto. Vazio numa resposta, para manter o do e-mail original." },
+        corpo: { type: "string", description: "Texto completo do e-mail, pronto, em texto puro, com saudação e assinatura." },
+        responder_a: { type: "string", description: "Id do e-mail que está sendo respondido, ou vazio se for um e-mail novo." },
+      },
+      required: ["para", "cc", "assunto", "corpo", "responder_a"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "gerar_documento",
     description:
       "Gera um documento e o envia ao dono no Telegram, logo depois da sua resposta. Use quando ele pedir um documento: contrato, proposta, ata, carta, relatório, roteiro, checklist. Word (docx) quando ele for editar ou assinar depois; PDF quando for enviar pronto. Na dúvida, docx.",
@@ -115,6 +212,21 @@ const FERRAMENTAS: Anthropic.Beta.BetaToolUnion[] = [
   },
 ];
 
+// Internet: pesquisa e leitura de páginas rodam nos servidores da Anthropic
+// (a versão 20260209 filtra os resultados antes de chegarem ao contexto). O
+// fuso vem da configuração e deixa "hoje" e "agora" certos nas buscas.
+function ferramentasWeb(fuso: string): Anthropic.Beta.BetaToolUnion[] {
+  return [
+    {
+      type: "web_search_20260209",
+      name: "web_search",
+      max_uses: 6,
+      user_location: { type: "approximate", country: "BR", timezone: fuso },
+    },
+    { type: "web_fetch_20260209", name: "web_fetch", max_uses: 6, max_content_tokens: 20_000 },
+  ];
+}
+
 export interface RespostaTurno {
   texto: string;
   usos: RegistroUso[];
@@ -122,6 +234,24 @@ export interface RespostaTurno {
   anexos: Anexo[];
   // O que ele consultou nos sistemas neste turno (vai para o histórico).
   consultas: string[];
+  // Ações preparadas neste turno, esperando o botão do dono.
+  confirmacoes: Confirmacao[];
+}
+
+export type Confirmacao =
+  | { tipo: "email"; pendenteId: number; email: Email }
+  | { tipo: "fatos"; pendenteId: number; fatos: { id: number; conteudo: string }[]; motivo: string };
+
+// Texto comparável de um fato: sem acento, pontuação e caixa.
+const normalizar = (t: string) =>
+  t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+// Fato já guardado que diz o mesmo que o novo (igual ou contendo o novo).
+// Fato curto demais (menos de 4 palavras) não é comparado: daria falso alarme.
+export function fatoRepetido(novo: string, fatos: { id: number; conteudo: string }[]): { id: number; conteudo: string } | null {
+  const n = normalizar(novo);
+  if (n.split(" ").length < 4) return null;
+  return fatos.find((f) => normalizar(f.conteudo).includes(n)) ?? null;
 }
 
 // O histórico guarda só o texto das respostas, não as chamadas de ferramenta.
@@ -136,30 +266,41 @@ export function comRegistroInterno(texto: string, consultas: string[]): string {
 
 export class Cerebro {
   private readonly client: Anthropic;
+  // Lista fixa e sempre na mesma ordem: faz parte do prefixo cacheado.
+  private readonly ferramentas: Anthropic.Beta.BetaToolUnion[];
 
   constructor(
-    private readonly config: Pick<Config, "anthropicApiKey" | "modelo" | "esforco">,
+    private readonly config: Pick<Config, "anthropicApiKey" | "modelo" | "esforco" | "fuso">,
     private readonly memoria: Memoria,
-    private readonly sistemas: Pick<Sistemas, "consultar" | "novidades">,
+    private readonly sistemas: Pick<Sistemas, "consultar" | "novidades" | "agenda" | "buscarEmails" | "lerEmail" | "criarLembrete">,
   ) {
     this.client = new Anthropic({ apiKey: config.anthropicApiKey });
+    this.ferramentas = [...FERRAMENTAS, ...ferramentasWeb(config.fuso)];
   }
 
   async responder(historico: Mensagem[], hoje: string): Promise<RespostaTurno> {
     const fatos = await this.memoria.listarFatos();
 
-    // Ordem do prefixo: ferramentas → instruções fixas (ponto de cache
-    // explícito) → fatos + data → conversa (cache automático no fim).
+    // Ordem do prefixo: ferramentas → instruções fixas → fatos + data →
+    // conversa. Instruções e fatos mudam pouco e ele escreve com intervalos
+    // de vários minutos: cache de 1 h neles. A conversa usa o automático.
     const system: Anthropic.Beta.BetaTextBlockParam[] = [
-      { type: "text", text: INSTRUCOES_FIXAS, cache_control: { type: "ephemeral" } },
-      { type: "text", text: blocoVariavel(fatos, hoje) },
+      { type: "text", text: INSTRUCOES_FIXAS, cache_control: { type: "ephemeral", ttl: "1h" } },
+      { type: "text", text: blocoVariavel(fatos, hoje), cache_control: { type: "ephemeral", ttl: "1h" } },
     ];
 
-    const messages: Msg[] = historico.map((m) => ({ role: m.papel, content: m.conteudo }));
+    const messages: Msg[] = juntarSeguidas(historico).map((m) => ({
+      role: m.papel,
+      content: m.papel === "user" && m.em ? `[${carimbo(m.em, this.config.fuso)}] ${m.conteudo}` : m.conteudo,
+    }));
     const usos: RegistroUso[] = [];
     const anexos: Anexo[] = [];
+    const confirmacoes: Confirmacao[] = [];
     const consultas: string[] = [];
     let fatosSalvos = 0;
+    // Blocos de respostas pausadas pelo servidor (pesquisa longa): a resposta
+    // final continua de onde parou, então o texto delas entra no final.
+    let pausado: Anthropic.Beta.BetaContentBlock[] = [];
 
     for (let volta = 0; volta <= MAX_VOLTAS_FERRAMENTA; volta++) {
       const resposta = await this.client.beta.messages.create({
@@ -171,7 +312,7 @@ export class Cerebro {
         output_config: { effort: this.config.esforco },
         cache_control: { type: "ephemeral" },
         system,
-        tools: FERRAMENTAS,
+        tools: this.ferramentas,
         messages,
       });
       // Registra o gasto a cada chamada: se uma volta seguinte falhar, o que
@@ -189,23 +330,35 @@ export class Cerebro {
           fatosSalvos,
           anexos,
           consultas,
+          confirmacoes,
         };
       }
 
+      consultas.push(...usoDaInternet(resposta.content));
+
+      // Pausa do servidor numa pesquisa longa: devolve o turno como veio, sem
+      // mensagem nova do dono, e a API continua de onde parou.
+      if (resposta.stop_reason === "pause_turn") {
+        juntarAoAssistente(messages, resposta.content);
+        pausado = [...pausado, ...resposta.content];
+        continue;
+      }
+
       if (resposta.stop_reason !== "tool_use") {
-        const texto = extrairTexto(resposta.content);
+        const texto = extrairTexto([...pausado, ...resposta.content]);
         const cortada = resposta.stop_reason === "max_tokens" ? "\n\n(resposta cortada no limite de tamanho)" : "";
-        return { texto: (texto || "(sem resposta)") + cortada, usos, fatosSalvos, anexos, consultas };
+        return { texto: (texto || "(sem resposta)") + cortada, usos, fatosSalvos, anexos, consultas, confirmacoes };
       }
 
       // Volta de ferramenta: devolve o turno do assistente sem alterar nada
       // (inclui os blocos de raciocínio) e responde a TODAS as chamadas numa
-      // única mensagem.
-      messages.push({ role: "assistant", content: resposta.content });
+      // única mensagem. O texto até aqui era preâmbulo e não vai ao dono.
+      juntarAoAssistente(messages, resposta.content);
+      pausado = [];
       const resultados: Anthropic.Beta.BetaToolResultBlockParam[] = [];
       for (const bloco of resposta.content) {
         if (bloco.type !== "tool_use") continue;
-        resultados.push(await this.executarFerramenta(bloco, anexos, consultas));
+        resultados.push(await this.executarFerramenta(bloco, { anexos, consultas, confirmacoes, fatos }));
         if (bloco.name === "salvar_fato" && !resultados.at(-1)?.is_error) fatosSalvos++;
       }
       messages.push({ role: "user", content: resultados });
@@ -217,14 +370,15 @@ export class Cerebro {
       fatosSalvos,
       anexos,
       consultas,
+      confirmacoes,
     };
   }
 
   private async executarFerramenta(
     bloco: Anthropic.Beta.BetaToolUseBlock,
-    anexos: Anexo[],
-    consultas: string[],
+    turno: { anexos: Anexo[]; consultas: string[]; confirmacoes: Confirmacao[]; fatos: { id: number; conteudo: string }[] },
   ): Promise<Anthropic.Beta.BetaToolResultBlockParam> {
+    const { anexos, consultas, confirmacoes, fatos } = turno;
     const erro = (mensagem: string): Anthropic.Beta.BetaToolResultBlockParam => ({
       type: "tool_result",
       tool_use_id: bloco.id,
@@ -236,6 +390,37 @@ export class Cerebro {
       const horas = Math.min(Math.max(Math.trunc(Number((bloco.input as { horas?: unknown }).horas) || 24), 1), 720);
       consultas.push(`novidades das últimas ${horas} h nos dois sistemas`);
       return { type: "tool_result", tool_use_id: bloco.id, content: limitar(JSON.stringify(await this.sistemas.novidades(horas))) };
+    }
+
+    if (bloco.name === "ver_agenda" || bloco.name === "buscar_emails" || bloco.name === "ler_email") {
+      const entrada = bloco.input as { de?: unknown; ate?: unknown; consulta?: unknown; quantos?: unknown; id?: unknown };
+      let registro: string;
+      let buscar: () => Promise<unknown>;
+      if (bloco.name === "ver_agenda") {
+        const de = String(entrada.de ?? "").trim();
+        const ate = String(entrada.ate ?? "").trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(de) || !/^\d{4}-\d{2}-\d{2}$/.test(ate)) return erro("Datas no formato AAAA-MM-DD.");
+        registro = `viu a agenda de ${de} a ${ate}`;
+        buscar = () => this.sistemas.agenda(de, ate);
+      } else if (bloco.name === "buscar_emails") {
+        const consulta = String(entrada.consulta ?? "").trim();
+        const quantos = Math.min(Math.max(Math.trunc(Number(entrada.quantos)) || 10, 1), 20);
+        registro = `buscou e-mails: ${consulta.slice(0, 120) || "(caixa de entrada)"}`;
+        buscar = () => this.sistemas.buscarEmails(consulta, quantos);
+      } else {
+        const id = String(entrada.id ?? "").trim();
+        if (!/^[A-Za-z0-9_-]+$/.test(id)) return erro("Id de e-mail inválido.");
+        registro = `leu o e-mail ${id}`;
+        buscar = () => this.sistemas.lerEmail(id);
+      }
+      try {
+        const resultado = await buscar();
+        consultas.push(registro);
+        return { type: "tool_result", tool_use_id: bloco.id, content: limitar(JSON.stringify(resultado)) };
+      } catch (e) {
+        consultas.push(`${registro} (deu erro)`);
+        return erro(`Erro no Google: ${(e as Error).message}`);
+      }
     }
 
     if (bloco.name === "ver_estrutura_banco" || bloco.name === "consultar_banco") {
@@ -264,6 +449,49 @@ export class Cerebro {
       }
     }
 
+    if (bloco.name === "criar_lembrete") {
+      const entrada = bloco.input as Record<string, unknown>;
+      const lembrete = {
+        titulo: String(entrada.titulo ?? "").trim(),
+        data: String(entrada.data ?? "").trim(),
+        hora: String(entrada.hora ?? "").trim() || "08:00",
+        duracaoMin: Math.min(Math.max(Math.trunc(Number(entrada.duracao_min)) || 15, 5), 480),
+        nota: String(entrada.nota ?? "").trim(),
+      };
+      if (!lembrete.titulo) return erro("Informe o título do lembrete.");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(lembrete.data) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(lembrete.hora)) {
+        return erro("Data em AAAA-MM-DD e hora em HH:MM.");
+      }
+      const registro = `criou o lembrete "${lembrete.titulo.slice(0, 80)}" para ${lembrete.data} às ${lembrete.hora}`;
+      try {
+        const resultado = await this.sistemas.criarLembrete(lembrete);
+        consultas.push(registro);
+        return { type: "tool_result", tool_use_id: bloco.id, content: limitar(JSON.stringify(resultado)) };
+      } catch (e) {
+        consultas.push(`tentou criar um lembrete e deu erro`);
+        return erro(`Erro no Google: ${(e as Error).message}`);
+      }
+    }
+
+    if (bloco.name === "preparar_email") {
+      const entrada = bloco.input as Record<string, unknown>;
+      const validacao = validarEmail({ ...entrada, responderA: entrada.responder_a });
+      if (!validacao.ok) return erro(validacao.erro);
+      if (confirmacoes.filter((c) => c.tipo === "email").length >= 3) return erro("No máximo três e-mails por resposta.");
+      try {
+        const pendenteId = await this.memoria.criarPendente("email", validacao.email);
+        confirmacoes.push({ tipo: "email", pendenteId, email: validacao.email });
+        consultas.push(`preparou o e-mail #${pendenteId} para ${validacao.email.para.join(", ")} (esperando o botão Enviar)`);
+        return {
+          type: "tool_result",
+          tool_use_id: bloco.id,
+          content: `E-mail #${pendenteId} preparado, NÃO enviado. Logo depois da sua resposta ele verá o e-mail inteiro com o botão Enviar. Na resposta, diga em uma linha que está pronto para ele conferir e enviar; não repita o texto e não diga que enviou.`,
+        };
+      } catch (e) {
+        return erro(`Falha ao preparar o e-mail: ${(e as Error).message}`);
+      }
+    }
+
     if (bloco.name === "gerar_documento") {
       const entrada = bloco.input as { titulo?: unknown; formato?: unknown; conteudo?: unknown };
       const titulo = typeof entrada.titulo === "string" ? entrada.titulo.trim() : "";
@@ -283,19 +511,71 @@ export class Cerebro {
       }
     }
 
+    if (bloco.name === "propor_apagar_fatos") {
+      const entrada = bloco.input as { ids?: unknown; motivo?: unknown };
+      const ids = [...new Set((Array.isArray(entrada.ids) ? entrada.ids : []).map((n) => Math.trunc(Number(n))))];
+      const escolhidos = fatos.filter((f) => ids.includes(f.id));
+      const faltando = ids.filter((id) => !escolhidos.some((f) => f.id === id));
+      if (escolhidos.length === 0) return erro("Nenhum desses números está em FATOS CONHECIDOS.");
+      if (escolhidos.length > 30) return erro("No máximo 30 fatos por vez.");
+      const motivo = String(entrada.motivo ?? "").trim().slice(0, 300);
+      try {
+        const pendenteId = await this.memoria.criarPendente("fatos", { ids: escolhidos.map((f) => f.id), motivo });
+        confirmacoes.push({ tipo: "fatos", pendenteId, fatos: escolhidos, motivo });
+        consultas.push(`propôs apagar os fatos ${escolhidos.map((f) => f.id).join(", ")} (esperando o botão Apagar)`);
+        return {
+          type: "tool_result",
+          tool_use_id: bloco.id,
+          content: `Proposta pronta, NADA apagado ainda: ele verá os fatos ${escolhidos.map((f) => f.id).join(", ")} com o botão Apagar logo depois da sua resposta.${faltando.length ? ` Não existem: ${faltando.join(", ")}.` : ""} Na resposta, diga em uma linha o que ele vai confirmar.`,
+        };
+      } catch (e) {
+        return erro(`Falha ao preparar: ${(e as Error).message}`);
+      }
+    }
+
     if (bloco.name !== "salvar_fato") return erro(`Ferramenta desconhecida: ${bloco.name}`);
 
     const entrada = bloco.input as { fato?: unknown };
     const fato = typeof entrada.fato === "string" ? entrada.fato.trim() : "";
     if (!fato || fato.length > 1000) return erro("O campo 'fato' precisa ter entre 1 e 1000 caracteres.");
 
+    const repetido = fatoRepetido(fato, fatos);
+    if (repetido) {
+      return erro(`Já está guardado no fato ${repetido.id}: "${repetido.conteudo.slice(0, 200)}". Não salvei de novo.`);
+    }
     try {
       const id = await this.memoria.salvarFato(fato, "conversa");
+      fatos.push({ id, conteudo: fato });
       return { type: "tool_result", tool_use_id: bloco.id, content: `Fato salvo com o número ${id}.` };
     } catch (e) {
       return erro(`Falha ao salvar: ${(e as Error).message}`);
     }
   }
+}
+
+// Dia e hora de Brasília em que o dono escreveu, na frente de cada mensagem
+// dele: é assim que o Claude sabe a hora de agora sem mudar o prompt fixo (o
+// carimbo fica gravado com a mensagem, então o cache da conversa continua).
+export function carimbo(iso: string, fuso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const partes = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: fuso, weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(d);
+  const p = (tipo: string) => partes.find((x) => x.type === tipo)?.value ?? "";
+  return `${p("weekday").replace(".", "")} ${p("day")}/${p("month")} ${p("hour")}:${p("minute")}`;
+}
+
+// Duas mensagens seguidas do mesmo lado (a resposta e, depois, o registro de
+// um e-mail enviado pelo botão) viram uma só: a conversa alterna sempre.
+export function juntarSeguidas(historico: Mensagem[]): Mensagem[] {
+  const saida: Mensagem[] = [];
+  for (const m of historico) {
+    const ultima = saida.at(-1);
+    if (ultima && ultima.papel === m.papel) ultima.conteudo = `${ultima.conteudo}\n\n${m.conteudo}`;
+    else saida.push({ ...m });
+  }
+  return saida;
 }
 
 function limitar(texto: string): string {
@@ -304,10 +584,43 @@ function limitar(texto: string): string {
     : texto;
 }
 
-function extrairTexto(conteudo: Anthropic.Beta.BetaContentBlock[]): string {
-  return conteudo
-    .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("\n")
-    .trim();
+// Continuação de uma pausa chega como resposta nova do mesmo turno: junta os
+// blocos na última mensagem do assistente em vez de abrir outra.
+function juntarAoAssistente(messages: Msg[], conteudo: Anthropic.Beta.BetaContentBlock[]): void {
+  const ultima = messages.at(-1);
+  if (ultima?.role === "assistant" && Array.isArray(ultima.content)) {
+    ultima.content = [...ultima.content, ...conteudo];
+  } else {
+    messages.push({ role: "assistant", content: conteudo });
+  }
+}
+
+// O que ele pesquisou e leu na internet, para o registro interno do turno.
+export function usoDaInternet(conteudo: Anthropic.Beta.BetaContentBlock[]): string[] {
+  const usos: string[] = [];
+  for (const bloco of conteudo) {
+    if (bloco.type !== "server_tool_use") continue;
+    const entrada = bloco.input as { query?: unknown; url?: unknown };
+    if (bloco.name === "web_search") usos.push(`pesquisou na internet: ${String(entrada.query ?? "").slice(0, 120)}`);
+    if (bloco.name === "web_fetch") usos.push(`leu a página ${String(entrada.url ?? "").slice(0, 200)}`);
+  }
+  return usos;
+}
+
+// Texto da resposta. Com pesquisa na internet, uma frase vem partida em
+// vários blocos (cada trecho com a sua citação): blocos seguidos se juntam
+// sem separador; trechos separados por uma ferramenta, com linha em branco.
+export function extrairTexto(conteudo: Anthropic.Beta.BetaContentBlock[]): string {
+  const trechos: string[] = [];
+  let atual = "";
+  for (const bloco of conteudo) {
+    if (bloco.type === "text") {
+      atual += bloco.text;
+    } else if (bloco.type !== "thinking" && bloco.type !== "redacted_thinking" && atual.trim()) {
+      trechos.push(atual.trim());
+      atual = "";
+    }
+  }
+  if (atual.trim()) trechos.push(atual.trim());
+  return trechos.join("\n\n");
 }

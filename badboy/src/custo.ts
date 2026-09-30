@@ -66,19 +66,28 @@ export function calcularCusto(modelo: string, uso: UsoParcial): RegistroUso {
   };
 }
 
+// Pesquisa na internet: US$ 10 por mil buscas, além dos tokens. Ler uma
+// página (web_fetch) custa só os tokens.
+export const CUSTO_BUSCA_USD = 0.01;
+
 // Uma resposta pode ter passado por mais de um modelo (fallback do servidor
 // após recusa). Quando a API detalha as iterações, cada uma é cobrada pelo
-// modelo que a rodou; senão, o total vai para o modelo que respondeu.
+// modelo que a rodou; senão, o total vai para o modelo que respondeu. As
+// buscas na internet entram no último registro.
 export function custosDaResposta(resposta: Anthropic.Beta.BetaMessage): RegistroUso[] {
   const iteracoes = (resposta.usage.iterations ?? []).filter(
     (it) => it.type === "message" || it.type === "fallback_message",
   );
-  if (iteracoes.length === 0) return [calcularCusto(resposta.model, resposta.usage)];
-
-  return iteracoes.map((it) => {
-    const modelo = ("model" in it && it.model) || resposta.model;
-    return calcularCusto(modelo, it as UsoParcial);
-  });
+  const registros =
+    iteracoes.length === 0
+      ? [calcularCusto(resposta.model, resposta.usage)]
+      : iteracoes.map((it) => {
+          const modelo = ("model" in it && it.model) || resposta.model;
+          return calcularCusto(modelo, it as UsoParcial);
+        });
+  const buscas = resposta.usage.server_tool_use?.web_search_requests ?? 0;
+  registros[registros.length - 1]!.custoUsd += buscas * CUSTO_BUSCA_USD;
+  return registros;
 }
 
 const usd = new Intl.NumberFormat("pt-BR", {

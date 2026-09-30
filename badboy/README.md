@@ -10,7 +10,7 @@ Supabase para tudo: memória (Postgres) e execução (Edge Function
 `badboy-telegram`, no projeto **Projetos Léo**). Não há servidor próprio.
 
 ```
-Telegram ──webhook──▶ Edge Function badboy-telegram ──▶ Claude (Sonnet 5.5)
+Telegram ──webhook──▶ Edge Function badboy-telegram ──▶ Claude (Opus 5.5)
                                │
                                └──▶ Postgres: badboy_mensagens, badboy_fatos, badboy_uso
 ```
@@ -24,6 +24,25 @@ Telegram ──webhook──▶ Edge Function badboy-telegram ──▶ Claude (
 - `/custo`, `/lembrar`, `/fatos`. `/esquecer` e `/limpar` só com **botão de
   confirmação**, que expira em 10 min.
 - **Documentos**: gera Word (.docx) ou PDF e manda no Telegram (`gerar_documento`).
+  O PDF tem visual padrão (faixa índigo com o título, seções, fichas de
+  "rótulo: valor", destaques) e emojis, por um recorte da Noto Emoji embutido em
+  `src/fontes/` (licença OFL), sem depender de rede.
+- **Prompt de chief of staff** (`src/prompt.ts`): o briefing do dono, sem dados
+  pessoais; empresas, família e preferências ficam em `badboy_fatos`. Cada
+  mensagem do dono vai ao Claude com o dia e a hora em que foi enviada.
+- **Lembretes** (`criar_lembrete`): eventos só para o dono num calendário
+  próprio, "Lembretes do Don Boy" (escopo `calendar.app.created`: não alcança
+  os outros calendários), com aviso na hora e 30 minutos antes.
+- **Memória com botão**: `propor_apagar_fatos` mostra os fatos com o botão
+  Apagar (migração `0005`); fato igual a um já guardado não é salvo de novo.
+- **Mensagens em sequência**: texto longo chega partido pelo Telegram; cada
+  mensagem espera 2,5 s e só a última responde, com todas juntas.
+- **Formatação no Telegram**: negrito, listas e tabelas em HTML; tabela larga
+  vira uma linha por item no celular.
+- **Briefing da manhã**: todo dia às 6h30 de Brasília o pg_cron chama
+  `POST /badboy-telegram?rotina=briefing` (migração `0006`, com o token da
+  ponte lido do Vault). O Don Boy grava o pedido como um "bom dia" do dono,
+  monta o briefing em segundo plano e não repete no mesmo dia.
 - **Lê os sistemas das empresas** (CRM, financeiro, obras, RH, laboratório),
   **só leitura** (`ver_estrutura_banco`, `consultar_banco`). A consulta passa por
   `donboy.consultar()` (migração `0002_donboy_leitura.sql`): roda como o papel
@@ -38,11 +57,26 @@ Telegram ──webhook──▶ Edge Function badboy-telegram ──▶ Claude (
   da ponte fica no Vault do principal (`donboy_ponte_segundo`, lido por
   `badboy_segredo`); lá fica só o hash. O mapa do que há em cada banco vive em
   `badboy_fatos`, não no código (o repositório é público).
+- **Agenda e Gmail** (`ver_agenda`, `buscar_emails`, `ler_email`): pela
+  conexão Google que a Central do Léo já tem no segundo projeto. A ponte usa a
+  chave de renovação de lá (`leo_config`) e as credenciais do app
+  (`GOOGLE_CLIENT_ID`/`SECRET` daquele projeto); o Don Boy recebe só eventos e
+  e-mails. Não mexe na agenda.
+- **Envio de e-mail com botão** (`preparar_email`): o Claude só prepara; o
+  e-mail fica em `badboy_pendentes` (migração `0004`) e o dono vê a prévia
+  inteira com o botão Enviar. O toque reserva a linha de forma atômica (dois
+  toques não mandam duas vezes) e a ponte envia pelo Gmail (escopo
+  `gmail.send`, pedido pela Central do Léo), como resposta na mesma conversa
+  quando for o caso. O resultado entra no histórico.
 - **Novidades** (`novidades_nos_sistemas`): o que foi criado ou atualizado nas
   últimas horas nos dois bancos (migração `0003`). Quando o dono diz que
   atualizou algo, o Don Boy olha aqui antes de responder.
+- **Internet** (`web_search` e `web_fetch`, ferramentas do servidor da
+  Anthropic): câmbio, notícias, preços, leis, fornecedores, links que o dono
+  manda. Cada busca custa US$ 0,01 além dos tokens e entra no `/custo`.
 - O histórico guarda, junto de cada resposta, um registro interno das
-  consultas feitas naquele turno: o Don Boy não desmente o que já consultou.
+  consultas feitas naquele turno (bancos, agenda, e-mails e internet): o Don
+  Boy não desmente o que já consultou.
 
 ## Configuração (uma vez)
 
@@ -60,8 +94,8 @@ Depois, abrir `https://reoghclxripktzpdwhiy.supabase.co/functions/v1/badboy-tele
 no navegador: registra o webhook no Telegram e mostra um diagnóstico
 (`"pronto": true` quando está tudo certo). Nenhuma chave aparece ali.
 
-Opcionais: `CLAUDE_MODELO` (padrão `claude-sonnet-5-5`), `CLAUDE_ESFORCO`
-(padrão `low`), `FUSO` (padrão `America/Sao_Paulo`), `DONBOY_PONTE_URL`
+Opcionais: `CLAUDE_MODELO` (padrão `claude-opus-5-5`), `CLAUDE_ESFORCO`
+(padrão `medium`), `FUSO` (padrão `America/Sao_Paulo`), `DONBOY_PONTE_URL`
 (padrão: a `donboy-ponte` do segundo projeto).
 
 Ponte para o segundo banco (uma vez, sem colar chave nenhuma):
@@ -90,7 +124,7 @@ badboy/
 │   └── telegram-util.ts  # divisão de mensagens, confirmação, datas
 ├── supabase/migrations/            # projeto principal (0001 a 0003)
 ├── supabase/migrations-segundo/    # segundo projeto (papel de leitura)
-├── ponte-segundo/index.ts          # Edge Function donboy-ponte do segundo projeto
+├── ponte-segundo/                  # Edge Function donboy-ponte do segundo projeto (banco + Google)
 ├── tests/
 └── deno.json             # versões dos pacotes na Edge Function
 ```
@@ -102,6 +136,11 @@ npm install
 npm run typecheck   # Node (tsc) + Deno (deno check src/edge.ts)
 npm test
 ```
+
+Pergunta de teste depois de publicar, fora do Telegram e sem mexer no
+histórico: `GET /badboy-telegram?pergunta=...` com o header `x-donboy-token`
+(o token da ponte, que só existe no Vault). Devolve a resposta, o que foi
+consultado, o custo e o tempo. Sem o token, 401.
 
 Publicar uma nova versão: deploy da função `badboy-telegram` com
 `src/*.ts` + `deno.json`, entrypoint `src/edge.ts`, `verify_jwt` desligado (quem

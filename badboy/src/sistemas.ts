@@ -5,6 +5,7 @@
 // lá, que confere um token e roda a mesma consulta somente leitura. O token
 // fica no Vault do principal (badboy_segredo), nunca no código.
 
+import type { Email } from "./email.ts";
 import type { Memoria } from "./memoria.ts";
 
 export const SISTEMAS = ["principal", "segundo"] as const;
@@ -17,6 +18,14 @@ export interface Novidades {
   ok: boolean;
   tabelas?: unknown;
   erro?: string;
+}
+
+export interface Lembrete {
+  titulo: string;
+  data: string;
+  hora: string;
+  duracaoMin: number;
+  nota: string;
 }
 
 type Buscar = typeof fetch;
@@ -49,6 +58,31 @@ export class Sistemas {
       tentar("principal", () => this.memoria.novidades(horas)),
       tentar("segundo", () => this.ponte({ acao: "novidades", horas })),
     ]);
+  }
+
+  // Agenda e Gmail do dono, pela conexão Google que a Central do Léo já tem
+  // no segundo projeto (a ponte usa a chave de lá; nada vem para cá).
+  async agenda(de: string, ate: string): Promise<unknown> {
+    return await this.ponte({ acao: "agenda", de, ate });
+  }
+
+  async buscarEmails(consulta: string, quantos: number): Promise<unknown> {
+    return await this.ponte({ acao: "gmail_buscar", consulta, quantos });
+  }
+
+  async lerEmail(id: string): Promise<unknown> {
+    return await this.ponte({ acao: "gmail_ler", id });
+  }
+
+  // Lembrete do dono para ele mesmo, num calendário só do Don Boy.
+  async criarLembrete(lembrete: Lembrete): Promise<unknown> {
+    return await this.ponte({ acao: "agenda_lembrete", lembrete });
+  }
+
+  // Envio de e-mail pela mesma conexão Google. Só é chamado depois do toque
+  // do dono no botão "Enviar" (bot.ts); o Claude apenas prepara o e-mail.
+  async enviarEmail(email: Email): Promise<unknown> {
+    return await this.ponte({ acao: "gmail_enviar", email });
   }
 
   private async ponte(corpo: Record<string, unknown>): Promise<unknown> {

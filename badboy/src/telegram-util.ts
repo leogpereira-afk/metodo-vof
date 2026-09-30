@@ -24,10 +24,14 @@ export function dividirMensagem(texto: string, limite = LIMITE_TELEGRAM): string
 // ação, o alvo e o horário em que o botão foi criado; botão velho expira.
 export const VALIDADE_CONFIRMACAO_S = 10 * 60;
 
-export type AcaoIrreversivel = { tipo: "esquecer"; fatoId: number } | { tipo: "limpar" };
+export type AcaoIrreversivel =
+  | { tipo: "esquecer"; fatoId: number }
+  | { tipo: "limpar" }
+  | { tipo: "email"; pendenteId: number }
+  | { tipo: "fatos"; pendenteId: number };
 
 export function codificarConfirmacao(acao: AcaoIrreversivel, agoraS: number): string {
-  const alvo = acao.tipo === "esquecer" ? String(acao.fatoId) : "-";
+  const alvo = acao.tipo === "esquecer" ? String(acao.fatoId) : acao.tipo === "limpar" ? "-" : String(acao.pendenteId);
   return `ok:${acao.tipo}:${alvo}:${agoraS}`;
 }
 
@@ -36,13 +40,14 @@ export type LeituraConfirmacao =
   | { valida: false; motivo: "expirada" | "invalida" };
 
 export function lerConfirmacao(dado: string, agoraS: number): LeituraConfirmacao {
-  const m = /^ok:(esquecer|limpar):(\d+|-):(\d+)$/.exec(dado);
+  const m = /^ok:(esquecer|limpar|email|fatos):(\d+|-):(\d+)$/.exec(dado);
   if (!m) return { valida: false, motivo: "invalida" };
   const [, tipo, alvo, criadoEm] = m;
   const idade = agoraS - Number(criadoEm);
   if (idade < 0 || idade > VALIDADE_CONFIRMACAO_S) return { valida: false, motivo: "expirada" };
   if (tipo === "limpar") return alvo === "-" ? { valida: true, acao: { tipo } } : { valida: false, motivo: "invalida" };
   if (alvo === "-") return { valida: false, motivo: "invalida" };
+  if (tipo === "email" || tipo === "fatos") return { valida: true, acao: { tipo, pendenteId: Number(alvo) } };
   return { valida: true, acao: { tipo: "esquecer", fatoId: Number(alvo) } };
 }
 
@@ -60,4 +65,12 @@ export function dataPorExtenso(data: Date, fuso: string): string {
 
 export function mesPorExtenso(data: Date, fuso: string): string {
   return new Intl.DateTimeFormat("pt-BR", { timeZone: fuso, month: "long", year: "numeric" }).format(data);
+}
+
+// Meia-noite de hoje no fuso dado, como instante (para "já foi feito hoje?").
+export function inicioDoDia(agora: Date, fuso: string): Date {
+  const dia = new Intl.DateTimeFormat("en-CA", { timeZone: fuso, year: "numeric", month: "2-digit", day: "2-digit" }).format(agora);
+  const partes = new Intl.DateTimeFormat("en-US", { timeZone: fuso, timeZoneName: "longOffset" }).formatToParts(agora);
+  const deslocamento = (partes.find((p) => p.type === "timeZoneName")?.value ?? "GMT").replace("GMT", "") || "+00:00";
+  return new Date(`${dia}T00:00:00${deslocamento}`);
 }

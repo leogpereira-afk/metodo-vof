@@ -46,7 +46,7 @@ export function lerConfig(env: Ambiente): Config {
     throw new Error("TELEGRAM_DONO_ID precisa ser o ID numérico do seu usuário no Telegram");
   }
 
-  const esforco = (env.CLAUDE_ESFORCO?.trim() || "low") as Esforco;
+  const esforco = (env.CLAUDE_ESFORCO?.trim() || "medium") as Esforco;
   if (!ESFORCOS.includes(esforco)) {
     throw new Error(`CLAUDE_ESFORCO inválido: use ${ESFORCOS.join(", ")}`);
   }
@@ -55,7 +55,7 @@ export function lerConfig(env: Ambiente): Config {
     telegramToken,
     donoId,
     anthropicApiKey,
-    modelo: env.CLAUDE_MODELO?.trim() || "claude-sonnet-5-5",
+    modelo: env.CLAUDE_MODELO?.trim() || "claude-opus-5-5",
     esforco,
     supabaseUrl,
     supabaseChave,
