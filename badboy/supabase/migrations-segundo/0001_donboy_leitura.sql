@@ -9,8 +9,12 @@
 -- confere um token (só o hash fica em donboy_ponte) e chama estas funções.
 --
 -- Fica de fora o que guarda credencial: leo_config (tokens de Google e
--- Strava), acesso_senha_legado e painel_senha_operacao, tabelas *_cfg, a
--- própria donboy_ponte e as colunas de hash de equipe_contas e painel_contas.
+-- Strava), leo_strava_cache (access token do Strava), acesso_senha_legado e
+-- painel_senha_operacao, tabelas *_cfg, a própria donboy_ponte, as colunas de
+-- hash de equipe_contas e painel_contas, a chave 'mubisys' do pcp_meta (token
+-- do ERP) e as coleções planilhas/planilhas_acesso do painel_registros (o id
+-- da planilha do Google vale como chave). leo_backups (cópias do estado) não
+-- é necessário para consulta.
 
 create role donboy_leitor nologin bypassrls;
 
@@ -38,8 +42,9 @@ begin
       and c.relkind in ('r', 'v', 'm', 'p')
       and c.relname not like '%\_cfg'
       and c.relname not in (
-        'leo_config', 'acesso_senha_legado', 'painel_senha_operacao', 'donboy_ponte',
-        'equipe_contas', 'painel_contas'
+        'leo_config', 'leo_strava_cache', 'leo_backups', 'acesso_senha_legado',
+        'painel_senha_operacao', 'donboy_ponte', 'equipe_contas', 'painel_contas',
+        'pcp_meta', 'painel_registros'
       )
   loop
     execute format('grant select on public.%I to donboy_leitor', t);
@@ -51,6 +56,18 @@ grant select (sistema, usuario, nome, papel, ativo, trocar_senha, criado_em, atu
   on public.equipe_contas to donboy_leitor;
 grant select (usuario, nome, permissoes, vendedor_id, atualizado_em)
   on public.painel_contas to donboy_leitor;
+
+-- pcp_meta e painel_registros sem o que vale como credencial. Mesmo nome da
+-- tabela, no schema donboy, que vem antes de public no search_path da consulta.
+create view donboy.pcp_meta as
+  select chave, valor, atualizado_em from public.pcp_meta where chave <> 'mubisys';
+comment on view donboy.pcp_meta is 'pcp_meta sem a chave mubisys (token do ERP)';
+create view donboy.painel_registros as
+  select colecao, id, registro, atualizado_em from public.painel_registros
+  where colecao not in ('planilhas', 'planilhas_acesso');
+comment on view donboy.painel_registros is 'painel_registros sem as coleções planilhas e planilhas_acesso';
+revoke all on donboy.pcp_meta, donboy.painel_registros from public, anon, authenticated;
+grant select on donboy.pcp_meta, donboy.painel_registros to donboy_leitor;
 
 create function donboy.consultar(p_sql text)
 returns jsonb
