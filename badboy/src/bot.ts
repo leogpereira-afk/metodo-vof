@@ -1,4 +1,4 @@
-import { Bot, InlineKeyboard, type Context } from "grammy";
+import { Bot, InlineKeyboard, InputFile, type Context } from "grammy";
 import type { Cerebro } from "./claude.ts";
 import type { Config } from "./config.ts";
 import { formatarResumo } from "./custo.ts";
@@ -111,9 +111,12 @@ export function criarBot(config: Config, memoria: Memoria, cerebro: Cerebro): Bo
     const pararDigitando = manterDigitando(ctx);
     try {
       const historico = await memoria.historico(chatId);
-      const { texto } = await cerebro.responder(historico, dataPorExtenso(new Date(), config.fuso));
+      const { texto, anexos } = await cerebro.responder(historico, dataPorExtenso(new Date(), config.fuso));
       await memoria.salvarMensagem(chatId, "assistant", texto);
       await responderLongo(ctx, texto);
+      for (const anexo of anexos) {
+        await ctx.replyWithDocument(new InputFile(anexo.bytes, anexo.nome), { caption: anexo.titulo });
+      }
     } finally {
       pararDigitando();
     }
