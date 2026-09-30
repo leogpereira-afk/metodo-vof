@@ -14,7 +14,7 @@ import {
 } from "./telegram-util.ts";
 
 const AJUDA = [
-  "BadBoy às ordens. Mande mensagem normal para conversar.",
+  "Don Boy às ordens. Me conte o que precisa, como falaria com um velho amigo.",
   "",
   "/custo — gasto do mês em tokens e dólares",
   "/lembrar [texto] — salva um fato",

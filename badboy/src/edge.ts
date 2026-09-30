@@ -1,4 +1,4 @@
-// Ponto de entrada da BadBoy como Supabase Edge Function (badboy-telegram).
+// Ponto de entrada do Don Boy como Supabase Edge Function (badboy-telegram).
 //
 // O Telegram entrega cada mensagem aqui por webhook (POST). A função responde
 // 200 na hora e processa em segundo plano (EdgeRuntime.waitUntil): uma
@@ -19,6 +19,7 @@ import { Memoria } from "./memoria.ts";
 declare const EdgeRuntime: { waitUntil(promessa: Promise<unknown>): void };
 
 const NOME_FUNCAO = "badboy-telegram";
+const NOME_NO_TELEGRAM = "Don Boy";
 const SEGREDOS_DO_DONO = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_DONO_ID", "ANTHROPIC_API_KEY"];
 
 // O Supabase injeta SUPABASE_URL e a chave secreta em toda Edge Function:
@@ -106,13 +107,19 @@ async function configurarEDiagnosticar(): Promise<Record<string, unknown>> {
     return { pronto: false, erro: (e as Error).message, formato: formatoDosSegredos(env) };
   }
 
-  const resultado: Record<string, unknown> = { telegram: { ok: true, bot: `@${ctx.bot.botInfo.username}` } };
+  const resultado: Record<string, unknown> = {
+    telegram: { ok: true, bot: `@${ctx.bot.botInfo.username}`, nome: NOME_NO_TELEGRAM },
+  };
 
   await ctx.bot.api.setWebhook(`${ambiente().SUPABASE_URL}/functions/v1/${NOME_FUNCAO}`, {
     secret_token: ctx.segredo,
     allowed_updates: ["message", "callback_query"],
   });
   await ctx.bot.api.setMyCommands(COMANDOS);
+  // O Telegram limita trocas de nome: só troca quando está diferente.
+  if ((await ctx.bot.api.getMyName()).name !== NOME_NO_TELEGRAM) {
+    await ctx.bot.api.setMyName(NOME_NO_TELEGRAM);
+  }
   const webhook = await ctx.bot.api.getWebhookInfo();
   resultado.webhook = {
     configurado: (webhook.url ?? "").endsWith(`/functions/v1/${NOME_FUNCAO}`),
@@ -160,7 +167,7 @@ Deno.serve(async (req) => {
     );
     return new Response("ok");
   } catch (e) {
-    console.error("Erro na BadBoy:", e);
+    console.error("Erro no Don Boy:", e);
     return json({ erro: (e as Error).message }, 500);
   }
 });
