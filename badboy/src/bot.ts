@@ -1,5 +1,5 @@
 import { Bot, InlineKeyboard, InputFile, type Context } from "grammy";
-import type { Cerebro } from "./claude.ts";
+import { comRegistroInterno, type Cerebro } from "./claude.ts";
 import type { Config } from "./config.ts";
 import { formatarResumo } from "./custo.ts";
 import type { Memoria } from "./memoria.ts";
@@ -111,8 +111,9 @@ export function criarBot(config: Config, memoria: Memoria, cerebro: Cerebro): Bo
     const pararDigitando = manterDigitando(ctx);
     try {
       const historico = await memoria.historico(chatId);
-      const { texto, anexos } = await cerebro.responder(historico, dataPorExtenso(new Date(), config.fuso));
-      await memoria.salvarMensagem(chatId, "assistant", texto);
+      const { texto, anexos, consultas } = await cerebro.responder(historico, dataPorExtenso(new Date(), config.fuso));
+      // O dono recebe só o texto; o histórico guarda também o que foi consultado.
+      await memoria.salvarMensagem(chatId, "assistant", comRegistroInterno(texto, consultas));
       await responderLongo(ctx, texto);
       for (const anexo of anexos) {
         await ctx.replyWithDocument(new InputFile(anexo.bytes, anexo.nome), { caption: anexo.titulo });

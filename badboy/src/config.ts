@@ -14,7 +14,12 @@ export interface Config {
   supabaseUrl: string;
   supabaseChave: string;
   fuso: string;
+  urlPonte: string;
 }
+
+// Edge Function donboy-ponte do segundo projeto Supabase (leitura dos
+// sistemas de lá). Não é segredo: o acesso exige o token guardado no Vault.
+export const URL_PONTE_PADRAO = "https://heveemylixartyijxewh.supabase.co/functions/v1/donboy-ponte";
 
 export type Ambiente = Record<string, string | undefined>;
 
@@ -55,6 +60,7 @@ export function lerConfig(env: Ambiente): Config {
     supabaseUrl,
     supabaseChave,
     fuso: env.FUSO?.trim() || "America/Sao_Paulo",
+    urlPonte: env.DONBOY_PONTE_URL?.trim() || URL_PONTE_PADRAO,
   };
 }
 

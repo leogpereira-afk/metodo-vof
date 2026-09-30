@@ -4,6 +4,7 @@ import { custosDaResposta, type RegistroUso } from "./custo.ts";
 import { gerarDocumento, type Anexo, type Formato } from "./documentos.ts";
 import type { Memoria, Mensagem } from "./memoria.ts";
 import { INSTRUCOES_FIXAS, blocoVariavel } from "./prompt.ts";
+import { SISTEMAS, type Sistema, type Sistemas } from "./sistemas.ts";
 
 type Msg = Anthropic.Beta.BetaMessageParam;
 
@@ -51,28 +52,44 @@ const FERRAMENTAS: Anthropic.Beta.BetaToolUnion[] = [
   {
     name: "ver_estrutura_banco",
     description:
-      "Mostra a estrutura do banco dos sistemas das empresas (CRM, financeiro, obras, RH, laboratório, integrações Omie). Com tabela vazia, lista as tabelas com o número aproximado de linhas; com o nome de uma tabela, lista as colunas e tipos. Use antes de consultar uma tabela que você ainda não conhece.",
+      "Mostra a estrutura de um dos dois bancos dos sistemas (o mapa do que há em cada um está em FATOS CONHECIDOS). Com tabela vazia, lista as tabelas com o número aproximado de linhas; com o nome de uma tabela, lista as colunas e tipos. Use antes de consultar uma tabela que você ainda não conhece.",
     strict: true,
     input_schema: {
       type: "object",
       properties: {
+        sistema: { type: "string", enum: [...SISTEMAS], description: "Em qual banco: principal ou segundo." },
         tabela: { type: "string", description: "Nome da tabela, ou vazio para listar todas." },
       },
-      required: ["tabela"],
+      required: ["sistema", "tabela"],
       additionalProperties: false,
     },
   },
   {
     name: "consultar_banco",
     description:
-      "Executa UMA consulta SELECT (PostgreSQL) no banco dos sistemas das empresas, só leitura, e devolve até 200 linhas em JSON. Prefira agregações (count, sum, group by) e só as colunas necessárias. Datas estão em UTC: para o horário de Brasília use \"coluna at time zone 'America/Sao_Paulo'\".",
+      "Executa UMA consulta SELECT (PostgreSQL) em um dos dois bancos dos sistemas, só leitura, e devolve até 200 linhas em JSON. Prefira agregações (count, sum, group by) e só as colunas necessárias. Datas estão em UTC: para o horário de Brasília use \"coluna at time zone 'America/Sao_Paulo'\".",
     strict: true,
     input_schema: {
       type: "object",
       properties: {
+        sistema: { type: "string", enum: [...SISTEMAS], description: "Em qual banco: principal ou segundo." },
         sql: { type: "string", description: "Uma única consulta SELECT, sem ponto e vírgula no meio." },
       },
-      required: ["sql"],
+      required: ["sistema", "sql"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "novidades_nos_sistemas",
+    description:
+      "Mostra o que foi criado ou atualizado nos dois bancos nas últimas horas: por tabela, quantas linhas e o horário da mais recente (UTC). Use quando ele disser que atualizou, cadastrou ou mudou algo, ou perguntar o que há de novo; depois consulte as tabelas que mudaram.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        horas: { type: "integer", description: "Janela em horas, de 1 a 720. Use 24 se ele não disser." },
+      },
+      required: ["horas"],
       additionalProperties: false,
     },
   },
@@ -103,6 +120,18 @@ export interface RespostaTurno {
   usos: RegistroUso[];
   fatosSalvos: number;
   anexos: Anexo[];
+  // O que ele consultou nos sistemas neste turno (vai para o histórico).
+  consultas: string[];
+}
+
+// O histórico guarda só o texto das respostas, não as chamadas de ferramenta.
+// Sem este registro, num turno seguinte o Don Boy via "consultei o banco" sem
+// prova e chegava a desmentir uma consulta que fez de verdade.
+export const MARCA_REGISTRO = "[registro interno do sistema, não mostrado ao dono]";
+
+export function comRegistroInterno(texto: string, consultas: string[]): string {
+  if (consultas.length === 0) return texto;
+  return `${texto}\n\n${MARCA_REGISTRO} Consultas feitas neste turno: ${consultas.join(" | ")}`;
 }
 
 export class Cerebro {
@@ -111,6 +140,7 @@ export class Cerebro {
   constructor(
     private readonly config: Pick<Config, "anthropicApiKey" | "modelo" | "esforco">,
     private readonly memoria: Memoria,
+    private readonly sistemas: Pick<Sistemas, "consultar" | "novidades">,
   ) {
     this.client = new Anthropic({ apiKey: config.anthropicApiKey });
   }
@@ -128,6 +158,7 @@ export class Cerebro {
     const messages: Msg[] = historico.map((m) => ({ role: m.papel, content: m.conteudo }));
     const usos: RegistroUso[] = [];
     const anexos: Anexo[] = [];
+    const consultas: string[] = [];
     let fatosSalvos = 0;
 
     for (let volta = 0; volta <= MAX_VOLTAS_FERRAMENTA; volta++) {
@@ -157,13 +188,14 @@ export class Cerebro {
           usos,
           fatosSalvos,
           anexos,
+          consultas,
         };
       }
 
       if (resposta.stop_reason !== "tool_use") {
         const texto = extrairTexto(resposta.content);
         const cortada = resposta.stop_reason === "max_tokens" ? "\n\n(resposta cortada no limite de tamanho)" : "";
-        return { texto: (texto || "(sem resposta)") + cortada, usos, fatosSalvos, anexos };
+        return { texto: (texto || "(sem resposta)") + cortada, usos, fatosSalvos, anexos, consultas };
       }
 
       // Volta de ferramenta: devolve o turno do assistente sem alterar nada
@@ -173,7 +205,7 @@ export class Cerebro {
       const resultados: Anthropic.Beta.BetaToolResultBlockParam[] = [];
       for (const bloco of resposta.content) {
         if (bloco.type !== "tool_use") continue;
-        resultados.push(await this.executarFerramenta(bloco, anexos));
+        resultados.push(await this.executarFerramenta(bloco, anexos, consultas));
         if (bloco.name === "salvar_fato" && !resultados.at(-1)?.is_error) fatosSalvos++;
       }
       messages.push({ role: "user", content: resultados });
@@ -184,12 +216,14 @@ export class Cerebro {
       usos,
       fatosSalvos,
       anexos,
+      consultas,
     };
   }
 
   private async executarFerramenta(
     bloco: Anthropic.Beta.BetaToolUseBlock,
     anexos: Anexo[],
+    consultas: string[],
   ): Promise<Anthropic.Beta.BetaToolResultBlockParam> {
     const erro = (mensagem: string): Anthropic.Beta.BetaToolResultBlockParam => ({
       type: "tool_result",
@@ -198,25 +232,34 @@ export class Cerebro {
       content: mensagem,
     });
 
+    if (bloco.name === "novidades_nos_sistemas") {
+      const horas = Math.min(Math.max(Math.trunc(Number((bloco.input as { horas?: unknown }).horas) || 24), 1), 720);
+      consultas.push(`novidades das últimas ${horas} h nos dois sistemas`);
+      return { type: "tool_result", tool_use_id: bloco.id, content: limitar(JSON.stringify(await this.sistemas.novidades(horas))) };
+    }
+
     if (bloco.name === "ver_estrutura_banco" || bloco.name === "consultar_banco") {
-      const entrada = bloco.input as { tabela?: unknown; sql?: unknown };
+      const entrada = bloco.input as { sistema?: unknown; tabela?: unknown; sql?: unknown };
+      const sistema = SISTEMAS.includes(entrada.sistema as Sistema) ? (entrada.sistema as Sistema) : null;
+      if (!sistema) return erro(`Informe o sistema: ${SISTEMAS.join(" ou ")}.`);
       let sql: string;
+      let registro: string;
       if (bloco.name === "consultar_banco") {
         sql = typeof entrada.sql === "string" ? entrada.sql.trim() : "";
         if (!sql) return erro("Informe a consulta SQL.");
+        registro = `consultou o sistema ${sistema}: ${sql.replace(/\s+/g, " ").slice(0, 160)}`;
       } else {
         const tabela = typeof entrada.tabela === "string" ? entrada.tabela.trim() : "";
         if (tabela && !/^[A-Za-z0-9_]+$/.test(tabela)) return erro("Nome de tabela inválido.");
         sql = tabela ? sqlColunas(tabela) : SQL_TABELAS;
+        registro = `viu a estrutura do sistema ${sistema}${tabela ? ` (tabela ${tabela})` : ""}`;
       }
       try {
-        const texto = JSON.stringify(await this.memoria.consultarBanco(sql));
-        const conteudo =
-          texto.length > LIMITE_RESULTADO
-            ? `${texto.slice(0, LIMITE_RESULTADO)}\n[resultado cortado em ${LIMITE_RESULTADO} caracteres: refine a consulta, selecione menos colunas ou agregue]`
-            : texto;
-        return { type: "tool_result", tool_use_id: bloco.id, content: conteudo };
+        const resultado = await this.sistemas.consultar(sistema, sql);
+        consultas.push(registro);
+        return { type: "tool_result", tool_use_id: bloco.id, content: limitar(JSON.stringify(resultado)) };
       } catch (e) {
+        consultas.push(`${registro} (deu erro)`);
         return erro(`Erro na consulta: ${(e as Error).message}`);
       }
     }
@@ -253,6 +296,12 @@ export class Cerebro {
       return erro(`Falha ao salvar: ${(e as Error).message}`);
     }
   }
+}
+
+function limitar(texto: string): string {
+  return texto.length > LIMITE_RESULTADO
+    ? `${texto.slice(0, LIMITE_RESULTADO)}\n[resultado cortado em ${LIMITE_RESULTADO} caracteres: refine a consulta, selecione menos colunas ou agregue]`
+    : texto;
 }
 
 function extrairTexto(conteudo: Anthropic.Beta.BetaContentBlock[]): string {

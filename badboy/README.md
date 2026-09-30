@@ -31,6 +31,18 @@ Telegram ──webhook──▶ Edge Function badboy-telegram ──▶ Claude (
   não enxerga senhas, tokens nem configurações (`*_cfg`, `ml_meta`,
   `google_calendar_integrations`, `cmp_acesso`, senha de `ml_contas`, grupos
   sensíveis do `dmd_kv`), nem os schemas `auth` e `vault`.
+- **Dois bancos**: o `principal` (este projeto) e o `segundo` (outro projeto
+  Supabase, com os sistemas de lá e o sistema pessoal do dono). O segundo é
+  lido pela Edge Function `donboy-ponte` daquele projeto (`ponte-segundo/`),
+  com as mesmas travas (migração `supabase/migrations-segundo/0001`). O token
+  da ponte fica no Vault do principal (`donboy_ponte_segundo`, lido por
+  `badboy_segredo`); lá fica só o hash. O mapa do que há em cada banco vive em
+  `badboy_fatos`, não no código (o repositório é público).
+- **Novidades** (`novidades_nos_sistemas`): o que foi criado ou atualizado nas
+  últimas horas nos dois bancos (migração `0003`). Quando o dono diz que
+  atualizou algo, o Don Boy olha aqui antes de responder.
+- O histórico guarda, junto de cada resposta, um registro interno das
+  consultas feitas naquele turno: o Don Boy não desmente o que já consultou.
 
 ## Configuração (uma vez)
 
@@ -49,7 +61,18 @@ no navegador: registra o webhook no Telegram e mostra um diagnóstico
 (`"pronto": true` quando está tudo certo). Nenhuma chave aparece ali.
 
 Opcionais: `CLAUDE_MODELO` (padrão `claude-sonnet-5-5`), `CLAUDE_ESFORCO`
-(padrão `low`), `FUSO` (padrão `America/Sao_Paulo`).
+(padrão `low`), `FUSO` (padrão `America/Sao_Paulo`), `DONBOY_PONTE_URL`
+(padrão: a `donboy-ponte` do segundo projeto).
+
+Ponte para o segundo banco (uma vez, sem colar chave nenhuma):
+
+1. Aplicar `supabase/migrations-segundo/0001_donboy_leitura.sql` no segundo
+   projeto e publicar lá `ponte-segundo/index.ts` como `donboy-ponte`
+   (`verify_jwt` desligado: quem autentica é o token).
+2. No principal, criar o token no Vault e levar só o hash para o segundo:
+   `select vault.create_secret(encode(extensions.gen_random_bytes(32), 'hex'), 'donboy_ponte_segundo');`
+   e `select encode(extensions.digest(decrypted_secret, 'sha256'), 'hex') from vault.decrypted_secrets where name = 'donboy_ponte_segundo';`
+3. No segundo: `insert into public.donboy_ponte (hash) values ('<hash>');`
 
 ## Estrutura
 
@@ -58,14 +81,17 @@ badboy/
 ├── src/
 │   ├── edge.ts           # entrada da Edge Function (webhook + diagnóstico)
 │   ├── bot.ts            # comandos, porteiro (só o dono), botões de confirmação
-│   ├── claude.ts         # chamada ao Claude, cache, ferramenta salvar_fato
+│   ├── claude.ts         # chamada ao Claude, cache, ferramentas
 │   ├── prompt.ts         # instruções fixas (parte cacheada) + bloco variável
-│   ├── memoria.ts        # Supabase: histórico, fatos, uso
+│   ├── memoria.ts        # Supabase: histórico, fatos, uso, leitura do principal
+│   ├── sistemas.ts       # leitura dos dois bancos (ponte para o segundo)
 │   ├── custo.ts          # tabela de preços e cálculo do custo
 │   ├── config.ts         # lê e valida os segredos
 │   └── telegram-util.ts  # divisão de mensagens, confirmação, datas
-├── supabase/migrations/0001_badboy_init.sql
-├── tests/unidade.test.ts
+├── supabase/migrations/            # projeto principal (0001 a 0003)
+├── supabase/migrations-segundo/    # segundo projeto (papel de leitura)
+├── ponte-segundo/index.ts          # Edge Function donboy-ponte do segundo projeto
+├── tests/
 └── deno.json             # versões dos pacotes na Edge Function
 ```
 
