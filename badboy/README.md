@@ -1,4 +1,9 @@
-# BadBoy
+# Don Boy (projeto `badboy`)
+
+Concierge e conselheiro pessoal no Telegram: um mentor mais velho e experiente
+que cuida do dono e da família. A personalidade está em `src/prompt.ts`; os
+dados pessoais (família, sócios, empresas) ficam só no banco, em `badboy_fatos`,
+porque este repositório é público.
 
 Agente pessoal no Telegram. TypeScript, API do Claude (SDK oficial) e
 Supabase para tudo: memória (Postgres) e execução (Edge Function
