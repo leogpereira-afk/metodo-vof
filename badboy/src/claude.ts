@@ -10,7 +10,23 @@ type Msg = Anthropic.Beta.BetaMessageParam;
 // Fallback do servidor: se o modelo recusar por política, a própria API
 // reexecuta o pedido no modelo recomendado para aquela categoria.
 const BETAS: Anthropic.Beta.AnthropicBeta[] = ["server-side-fallback-2026-07-01"];
-const MAX_VOLTAS_FERRAMENTA = 5;
+// Consultar o banco costuma levar algumas voltas (estrutura → consulta →
+// ajuste), então o teto é mais alto que o de uma conversa simples.
+const MAX_VOLTAS_FERRAMENTA = 10;
+const LIMITE_RESULTADO = 15_000;
+
+export const SQL_TABELAS = `select c.relname as tabela, greatest(c.reltuples, 0)::bigint as linhas_aprox, obj_description(c.oid) as descricao
+from pg_class c join pg_namespace n on n.oid = c.relnamespace
+where n.nspname in ('donboy', 'public') and c.relkind in ('r', 'v', 'm', 'p')
+  and (has_table_privilege(c.oid, 'select') or has_any_column_privilege(c.oid, 'select'))
+order by 1`;
+
+export function sqlColunas(tabela: string): string {
+  return `select column_name as coluna, data_type as tipo
+from information_schema.columns
+where table_schema in ('donboy', 'public') and table_name = '${tabela}'
+order by table_schema, ordinal_position`;
+}
 
 // Lista de ferramentas fixa e sempre na mesma ordem: ela faz parte do
 // prefixo cacheado.
@@ -29,6 +45,34 @@ const FERRAMENTAS: Anthropic.Beta.BetaToolUnion[] = [
         },
       },
       required: ["fato"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "ver_estrutura_banco",
+    description:
+      "Mostra a estrutura do banco dos sistemas das empresas (CRM, financeiro, obras, RH, laboratório, integrações Omie). Com tabela vazia, lista as tabelas com o número aproximado de linhas; com o nome de uma tabela, lista as colunas e tipos. Use antes de consultar uma tabela que você ainda não conhece.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        tabela: { type: "string", description: "Nome da tabela, ou vazio para listar todas." },
+      },
+      required: ["tabela"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "consultar_banco",
+    description:
+      "Executa UMA consulta SELECT (PostgreSQL) no banco dos sistemas das empresas, só leitura, e devolve até 200 linhas em JSON. Prefira agregações (count, sum, group by) e só as colunas necessárias. Datas estão em UTC: para o horário de Brasília use \"coluna at time zone 'America/Sao_Paulo'\".",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        sql: { type: "string", description: "Uma única consulta SELECT, sem ponto e vírgula no meio." },
+      },
+      required: ["sql"],
       additionalProperties: false,
     },
   },
@@ -153,6 +197,29 @@ export class Cerebro {
       is_error: true,
       content: mensagem,
     });
+
+    if (bloco.name === "ver_estrutura_banco" || bloco.name === "consultar_banco") {
+      const entrada = bloco.input as { tabela?: unknown; sql?: unknown };
+      let sql: string;
+      if (bloco.name === "consultar_banco") {
+        sql = typeof entrada.sql === "string" ? entrada.sql.trim() : "";
+        if (!sql) return erro("Informe a consulta SQL.");
+      } else {
+        const tabela = typeof entrada.tabela === "string" ? entrada.tabela.trim() : "";
+        if (tabela && !/^[A-Za-z0-9_]+$/.test(tabela)) return erro("Nome de tabela inválido.");
+        sql = tabela ? sqlColunas(tabela) : SQL_TABELAS;
+      }
+      try {
+        const texto = JSON.stringify(await this.memoria.consultarBanco(sql));
+        const conteudo =
+          texto.length > LIMITE_RESULTADO
+            ? `${texto.slice(0, LIMITE_RESULTADO)}\n[resultado cortado em ${LIMITE_RESULTADO} caracteres: refine a consulta, selecione menos colunas ou agregue]`
+            : texto;
+        return { type: "tool_result", tool_use_id: bloco.id, content: conteudo };
+      } catch (e) {
+        return erro(`Erro na consulta: ${(e as Error).message}`);
+      }
+    }
 
     if (bloco.name === "gerar_documento") {
       const entrada = bloco.input as { titulo?: unknown; formato?: unknown; conteudo?: unknown };

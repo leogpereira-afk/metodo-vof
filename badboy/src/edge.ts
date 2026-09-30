@@ -144,7 +144,17 @@ async function configurarEDiagnosticar(): Promise<Record<string, unknown>> {
     resultado.supabase = { ok: false, erro: (e as Error).message };
   }
 
-  const tudoOk = [resultado.telegram, resultado.anthropic, resultado.supabase].every(
+  // Leitura dos sistemas: conta as tabelas visíveis pelo papel de leitura.
+  try {
+    const linhas = (await ctx.memoria.consultarBanco(
+      "select count(*) as tabelas from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname in ('donboy', 'public') and c.relkind in ('r', 'v', 'm', 'p') and (has_table_privilege(c.oid, 'select') or has_any_column_privilege(c.oid, 'select'))",
+    )) as { tabelas: number }[];
+    resultado.leitura_sistemas = { ok: true, tabelas_visiveis: linhas[0]?.tabelas ?? 0 };
+  } catch (e) {
+    resultado.leitura_sistemas = { ok: false, erro: (e as Error).message };
+  }
+
+  const tudoOk = [resultado.telegram, resultado.anthropic, resultado.supabase, resultado.leitura_sistemas].every(
     (r) => (r as { ok: boolean }).ok,
   );
   return { pronto: tudoOk && (resultado.webhook as { configurado: boolean }).configurado, ...resultado };
