@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { juntarSeguidas } from "../src/claude.ts";
+import { carimbo, fatoRepetido, juntarSeguidas } from "../src/claude.ts";
 import { montarMime, paraBase64Url, previaEmail, validarEmail } from "../src/email.ts";
 import { codificarConfirmacao, lerConfirmacao } from "../src/telegram-util.ts";
 
@@ -72,4 +72,21 @@ test("histórico: mensagens seguidas do mesmo lado viram uma só", () => {
       { papel: "user", conteudo: "valeu" },
     ],
   );
+});
+
+test("carimbo: dia e hora de Brasília na frente da mensagem do dono", () => {
+  assert.equal(carimbo("2026-10-01T00:30:00Z", "America/Sao_Paulo"), "qua 30/09 21:30");
+  assert.equal(carimbo("inválido", "America/Sao_Paulo"), "");
+});
+
+test("memória: fato igual ou já contido em outro não é salvo de novo", () => {
+  const fatos = [{ id: 5, conteudo: "O irmão Pedro Henrique atua com o Léo na Universe Imports e em outras frentes." }];
+  assert.equal(fatoRepetido("o irmão Pedro Henrique atua com o Léo na Universe Imports", fatos)?.id, 5);
+  assert.equal(fatoRepetido("O Pedro Henrique saiu da Universe Imports.", fatos), null);
+  assert.equal(fatoRepetido("Universe Imports", fatos), null, "curto demais para comparar");
+});
+
+test("botão de apagar fatos: ida e volta", () => {
+  const dado = codificarConfirmacao({ tipo: "fatos", pendenteId: 12 }, 1_800_000_000);
+  assert.deepEqual(lerConfirmacao(dado, 1_800_000_010), { valida: true, acao: { tipo: "fatos", pendenteId: 12 } });
 });

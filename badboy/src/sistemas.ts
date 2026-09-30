@@ -20,6 +20,14 @@ export interface Novidades {
   erro?: string;
 }
 
+export interface Lembrete {
+  titulo: string;
+  data: string;
+  hora: string;
+  duracaoMin: number;
+  nota: string;
+}
+
 type Buscar = typeof fetch;
 
 export class Sistemas {
@@ -64,6 +72,11 @@ export class Sistemas {
 
   async lerEmail(id: string): Promise<unknown> {
     return await this.ponte({ acao: "gmail_ler", id });
+  }
+
+  // Lembrete do dono para ele mesmo, num calendário só do Don Boy.
+  async criarLembrete(lembrete: Lembrete): Promise<unknown> {
+    return await this.ponte({ acao: "agenda_lembrete", lembrete });
   }
 
   // Envio de e-mail pela mesma conexão Google. Só é chamado depois do toque

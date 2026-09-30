@@ -24,6 +24,21 @@ Telegram ──webhook──▶ Edge Function badboy-telegram ──▶ Claude (
 - `/custo`, `/lembrar`, `/fatos`. `/esquecer` e `/limpar` só com **botão de
   confirmação**, que expira em 10 min.
 - **Documentos**: gera Word (.docx) ou PDF e manda no Telegram (`gerar_documento`).
+  O PDF tem visual padrão (faixa índigo com o título, seções, fichas de
+  "rótulo: valor", destaques) e emojis, por um recorte da Noto Emoji embutido em
+  `src/fontes/` (licença OFL), sem depender de rede.
+- **Prompt de chief of staff** (`src/prompt.ts`): o briefing do dono, sem dados
+  pessoais; empresas, família e preferências ficam em `badboy_fatos`. Cada
+  mensagem do dono vai ao Claude com o dia e a hora em que foi enviada.
+- **Lembretes** (`criar_lembrete`): eventos só para o dono num calendário
+  próprio, "Lembretes do Don Boy" (escopo `calendar.app.created`: não alcança
+  os outros calendários), com aviso na hora e 30 minutos antes.
+- **Memória com botão**: `propor_apagar_fatos` mostra os fatos com o botão
+  Apagar (migração `0005`); fato igual a um já guardado não é salvo de novo.
+- **Mensagens em sequência**: texto longo chega partido pelo Telegram; cada
+  mensagem espera 2,5 s e só a última responde, com todas juntas.
+- **Formatação no Telegram**: negrito, listas e tabelas em HTML; tabela larga
+  vira uma linha por item no celular.
 - **Lê os sistemas das empresas** (CRM, financeiro, obras, RH, laboratório),
   **só leitura** (`ver_estrutura_banco`, `consultar_banco`). A consulta passa por
   `donboy.consultar()` (migração `0002_donboy_leitura.sql`): roda como o papel

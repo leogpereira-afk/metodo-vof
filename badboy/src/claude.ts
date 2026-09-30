@@ -52,6 +52,21 @@ const FERRAMENTAS: Anthropic.Beta.BetaToolUnion[] = [
     },
   },
   {
+    name: "propor_apagar_fatos",
+    description:
+      "Propõe apagar fatos da memória: repetidos, errados ou substituídos por uma versão corrigida. NÃO apaga: logo depois da sua resposta ele vê o texto de cada fato com um botão Apagar, e só o toque dele apaga. Use quando ele pedir para limpar ou corrigir a memória, ou logo depois de salvar a versão corrigida de um fato.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        ids: { type: "array", items: { type: "integer" }, description: "Números dos fatos a apagar, como aparecem em FATOS CONHECIDOS." },
+        motivo: { type: "string", description: "Por que apagar, em uma frase (ex.: \"repetem o fato 5\")." },
+      },
+      required: ["ids", "motivo"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "ver_estrutura_banco",
     description:
       "Mostra a estrutura de um dos dois bancos dos sistemas (o mapa do que há em cada um está em FATOS CONHECIDOS). Com tabela vazia, lista as tabelas com o número aproximado de linhas; com o nome de uma tabela, lista as colunas e tipos. Use antes de consultar uma tabela que você ainda não conhece.",
@@ -140,6 +155,24 @@ const FERRAMENTAS: Anthropic.Beta.BetaToolUnion[] = [
     },
   },
   {
+    name: "criar_lembrete",
+    description:
+      "Cria um lembrete para o próprio dono na agenda Google dele, num calendário separado (\"Lembretes do Don Boy\"), com aviso na hora e 30 minutos antes. Não convida ninguém e não mexe nos outros calendários. Use quando ele pedir para lembrar de algo, ou para bloquear um horário só dele (treino, foco, preparação de reunião). Não precisa pedir confirmação.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        titulo: { type: "string", description: "O que lembrar, curto e acionável (ex.: \"Ligar para o contador sobre a SCP\")." },
+        data: { type: "string", description: "Data, AAAA-MM-DD, calculada a partir da data de hoje." },
+        hora: { type: "string", description: "Hora de Brasília, HH:MM. Se ele não disser, use 08:00." },
+        duracao_min: { type: "integer", description: "Duração em minutos, de 5 a 480. Lembrete simples: 15." },
+        nota: { type: "string", description: "Detalhes úteis na hora (telefone, pauta, link), ou vazio." },
+      },
+      required: ["titulo", "data", "hora", "duracao_min", "nota"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "preparar_email",
     description:
       "Prepara um e-mail para o dono enviar do Gmail dele. NÃO envia: logo depois da sua resposta ele vê o e-mail inteiro com um botão Enviar, e só o toque dele manda. Use quando ele pedir para mandar, responder ou encaminhar um e-mail. Para responder, passe em responder_a o id do e-mail original (de buscar_emails) e deixe o assunto vazio para manter o dele.",
@@ -201,8 +234,24 @@ export interface RespostaTurno {
   anexos: Anexo[];
   // O que ele consultou nos sistemas neste turno (vai para o histórico).
   consultas: string[];
-  // E-mails preparados, esperando o botão Enviar do dono.
-  emails: { pendenteId: number; email: Email }[];
+  // Ações preparadas neste turno, esperando o botão do dono.
+  confirmacoes: Confirmacao[];
+}
+
+export type Confirmacao =
+  | { tipo: "email"; pendenteId: number; email: Email }
+  | { tipo: "fatos"; pendenteId: number; fatos: { id: number; conteudo: string }[]; motivo: string };
+
+// Texto comparável de um fato: sem acento, pontuação e caixa.
+const normalizar = (t: string) =>
+  t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+// Fato já guardado que diz o mesmo que o novo (igual ou contendo o novo).
+// Fato curto demais (menos de 4 palavras) não é comparado: daria falso alarme.
+export function fatoRepetido(novo: string, fatos: { id: number; conteudo: string }[]): { id: number; conteudo: string } | null {
+  const n = normalizar(novo);
+  if (n.split(" ").length < 4) return null;
+  return fatos.find((f) => normalizar(f.conteudo).includes(n)) ?? null;
 }
 
 // O histórico guarda só o texto das respostas, não as chamadas de ferramenta.
@@ -223,7 +272,7 @@ export class Cerebro {
   constructor(
     private readonly config: Pick<Config, "anthropicApiKey" | "modelo" | "esforco" | "fuso">,
     private readonly memoria: Memoria,
-    private readonly sistemas: Pick<Sistemas, "consultar" | "novidades" | "agenda" | "buscarEmails" | "lerEmail">,
+    private readonly sistemas: Pick<Sistemas, "consultar" | "novidades" | "agenda" | "buscarEmails" | "lerEmail" | "criarLembrete">,
   ) {
     this.client = new Anthropic({ apiKey: config.anthropicApiKey });
     this.ferramentas = [...FERRAMENTAS, ...ferramentasWeb(config.fuso)];
@@ -240,10 +289,13 @@ export class Cerebro {
       { type: "text", text: blocoVariavel(fatos, hoje), cache_control: { type: "ephemeral", ttl: "1h" } },
     ];
 
-    const messages: Msg[] = juntarSeguidas(historico).map((m) => ({ role: m.papel, content: m.conteudo }));
+    const messages: Msg[] = juntarSeguidas(historico).map((m) => ({
+      role: m.papel,
+      content: m.papel === "user" && m.em ? `[${carimbo(m.em, this.config.fuso)}] ${m.conteudo}` : m.conteudo,
+    }));
     const usos: RegistroUso[] = [];
     const anexos: Anexo[] = [];
-    const emails: RespostaTurno["emails"] = [];
+    const confirmacoes: Confirmacao[] = [];
     const consultas: string[] = [];
     let fatosSalvos = 0;
     // Blocos de respostas pausadas pelo servidor (pesquisa longa): a resposta
@@ -278,7 +330,7 @@ export class Cerebro {
           fatosSalvos,
           anexos,
           consultas,
-          emails,
+          confirmacoes,
         };
       }
 
@@ -295,7 +347,7 @@ export class Cerebro {
       if (resposta.stop_reason !== "tool_use") {
         const texto = extrairTexto([...pausado, ...resposta.content]);
         const cortada = resposta.stop_reason === "max_tokens" ? "\n\n(resposta cortada no limite de tamanho)" : "";
-        return { texto: (texto || "(sem resposta)") + cortada, usos, fatosSalvos, anexos, consultas, emails };
+        return { texto: (texto || "(sem resposta)") + cortada, usos, fatosSalvos, anexos, consultas, confirmacoes };
       }
 
       // Volta de ferramenta: devolve o turno do assistente sem alterar nada
@@ -306,7 +358,7 @@ export class Cerebro {
       const resultados: Anthropic.Beta.BetaToolResultBlockParam[] = [];
       for (const bloco of resposta.content) {
         if (bloco.type !== "tool_use") continue;
-        resultados.push(await this.executarFerramenta(bloco, anexos, consultas, emails));
+        resultados.push(await this.executarFerramenta(bloco, { anexos, consultas, confirmacoes, fatos }));
         if (bloco.name === "salvar_fato" && !resultados.at(-1)?.is_error) fatosSalvos++;
       }
       messages.push({ role: "user", content: resultados });
@@ -318,16 +370,15 @@ export class Cerebro {
       fatosSalvos,
       anexos,
       consultas,
-      emails,
+      confirmacoes,
     };
   }
 
   private async executarFerramenta(
     bloco: Anthropic.Beta.BetaToolUseBlock,
-    anexos: Anexo[],
-    consultas: string[],
-    emails: RespostaTurno["emails"],
+    turno: { anexos: Anexo[]; consultas: string[]; confirmacoes: Confirmacao[]; fatos: { id: number; conteudo: string }[] },
   ): Promise<Anthropic.Beta.BetaToolResultBlockParam> {
+    const { anexos, consultas, confirmacoes, fatos } = turno;
     const erro = (mensagem: string): Anthropic.Beta.BetaToolResultBlockParam => ({
       type: "tool_result",
       tool_use_id: bloco.id,
@@ -398,14 +449,38 @@ export class Cerebro {
       }
     }
 
+    if (bloco.name === "criar_lembrete") {
+      const entrada = bloco.input as Record<string, unknown>;
+      const lembrete = {
+        titulo: String(entrada.titulo ?? "").trim(),
+        data: String(entrada.data ?? "").trim(),
+        hora: String(entrada.hora ?? "").trim() || "08:00",
+        duracaoMin: Math.min(Math.max(Math.trunc(Number(entrada.duracao_min)) || 15, 5), 480),
+        nota: String(entrada.nota ?? "").trim(),
+      };
+      if (!lembrete.titulo) return erro("Informe o título do lembrete.");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(lembrete.data) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(lembrete.hora)) {
+        return erro("Data em AAAA-MM-DD e hora em HH:MM.");
+      }
+      const registro = `criou o lembrete "${lembrete.titulo.slice(0, 80)}" para ${lembrete.data} às ${lembrete.hora}`;
+      try {
+        const resultado = await this.sistemas.criarLembrete(lembrete);
+        consultas.push(registro);
+        return { type: "tool_result", tool_use_id: bloco.id, content: limitar(JSON.stringify(resultado)) };
+      } catch (e) {
+        consultas.push(`tentou criar um lembrete e deu erro`);
+        return erro(`Erro no Google: ${(e as Error).message}`);
+      }
+    }
+
     if (bloco.name === "preparar_email") {
       const entrada = bloco.input as Record<string, unknown>;
       const validacao = validarEmail({ ...entrada, responderA: entrada.responder_a });
       if (!validacao.ok) return erro(validacao.erro);
-      if (emails.length >= 3) return erro("No máximo três e-mails por resposta.");
+      if (confirmacoes.filter((c) => c.tipo === "email").length >= 3) return erro("No máximo três e-mails por resposta.");
       try {
         const pendenteId = await this.memoria.criarPendente("email", validacao.email);
-        emails.push({ pendenteId, email: validacao.email });
+        confirmacoes.push({ tipo: "email", pendenteId, email: validacao.email });
         consultas.push(`preparou o e-mail #${pendenteId} para ${validacao.email.para.join(", ")} (esperando o botão Enviar)`);
         return {
           type: "tool_result",
@@ -436,19 +511,59 @@ export class Cerebro {
       }
     }
 
+    if (bloco.name === "propor_apagar_fatos") {
+      const entrada = bloco.input as { ids?: unknown; motivo?: unknown };
+      const ids = [...new Set((Array.isArray(entrada.ids) ? entrada.ids : []).map((n) => Math.trunc(Number(n))))];
+      const escolhidos = fatos.filter((f) => ids.includes(f.id));
+      const faltando = ids.filter((id) => !escolhidos.some((f) => f.id === id));
+      if (escolhidos.length === 0) return erro("Nenhum desses números está em FATOS CONHECIDOS.");
+      if (escolhidos.length > 30) return erro("No máximo 30 fatos por vez.");
+      const motivo = String(entrada.motivo ?? "").trim().slice(0, 300);
+      try {
+        const pendenteId = await this.memoria.criarPendente("fatos", { ids: escolhidos.map((f) => f.id), motivo });
+        confirmacoes.push({ tipo: "fatos", pendenteId, fatos: escolhidos, motivo });
+        consultas.push(`propôs apagar os fatos ${escolhidos.map((f) => f.id).join(", ")} (esperando o botão Apagar)`);
+        return {
+          type: "tool_result",
+          tool_use_id: bloco.id,
+          content: `Proposta pronta, NADA apagado ainda: ele verá os fatos ${escolhidos.map((f) => f.id).join(", ")} com o botão Apagar logo depois da sua resposta.${faltando.length ? ` Não existem: ${faltando.join(", ")}.` : ""} Na resposta, diga em uma linha o que ele vai confirmar.`,
+        };
+      } catch (e) {
+        return erro(`Falha ao preparar: ${(e as Error).message}`);
+      }
+    }
+
     if (bloco.name !== "salvar_fato") return erro(`Ferramenta desconhecida: ${bloco.name}`);
 
     const entrada = bloco.input as { fato?: unknown };
     const fato = typeof entrada.fato === "string" ? entrada.fato.trim() : "";
     if (!fato || fato.length > 1000) return erro("O campo 'fato' precisa ter entre 1 e 1000 caracteres.");
 
+    const repetido = fatoRepetido(fato, fatos);
+    if (repetido) {
+      return erro(`Já está guardado no fato ${repetido.id}: "${repetido.conteudo.slice(0, 200)}". Não salvei de novo.`);
+    }
     try {
       const id = await this.memoria.salvarFato(fato, "conversa");
+      fatos.push({ id, conteudo: fato });
       return { type: "tool_result", tool_use_id: bloco.id, content: `Fato salvo com o número ${id}.` };
     } catch (e) {
       return erro(`Falha ao salvar: ${(e as Error).message}`);
     }
   }
+}
+
+// Dia e hora de Brasília em que o dono escreveu, na frente de cada mensagem
+// dele: é assim que o Claude sabe a hora de agora sem mudar o prompt fixo (o
+// carimbo fica gravado com a mensagem, então o cache da conversa continua).
+export function carimbo(iso: string, fuso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const partes = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: fuso, weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(d);
+  const p = (tipo: string) => partes.find((x) => x.type === tipo)?.value ?? "";
+  return `${p("weekday").replace(".", "")} ${p("day")}/${p("month")} ${p("hour")}:${p("minute")}`;
 }
 
 // Duas mensagens seguidas do mesmo lado (a resposta e, depois, o registro de

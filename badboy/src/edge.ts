@@ -194,7 +194,10 @@ async function perguntaDeTeste(req: Request, pergunta: string): Promise<Response
     return new Response("não autorizado", { status: 401 });
   }
   const inicio = Date.now();
-  const r = await ctx.cerebro.responder([{ papel: "user", conteudo: pergunta.slice(0, 2000) }], dataPorExtenso(new Date(), ctx.config.fuso));
+  const r = await ctx.cerebro.responder(
+    [{ papel: "user", conteudo: pergunta.slice(0, 2000), em: new Date().toISOString() }],
+    dataPorExtenso(new Date(), ctx.config.fuso),
+  );
   return json({
     texto: r.texto,
     consultas: r.consultas,

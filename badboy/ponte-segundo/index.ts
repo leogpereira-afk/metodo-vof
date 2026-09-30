@@ -8,6 +8,7 @@
 //   { "acao": "gmail_buscar", "consulta": "...", "quantos": 10 } → e-mails
 //   { "acao": "gmail_ler", "id": "..." }          → um e-mail inteiro
 //   { "acao": "gmail_enviar", "email": { para, cc, assunto, corpo, responderA } }
+//   { "acao": "agenda_lembrete", "lembrete": { titulo, data, hora, duracaoMin, nota } }
 // Agenda e Gmail pela conexão Google da Central (google.ts). O envio só é
 // pedido depois do toque do dono no botão "Enviar" do Telegram.
 //
@@ -17,7 +18,7 @@
 // executa em transação somente leitura (migração migrations-segundo/0001).
 
 import { createClient } from "npm:@supabase/supabase-js@2.117.2";
-import { agenda, gmailBuscar, gmailEnviar, gmailLer } from "./google.ts";
+import { agenda, criarLembrete, gmailBuscar, gmailEnviar, gmailLer } from "./google.ts";
 
 function chaveSecreta(): string {
   try {
@@ -59,7 +60,7 @@ Deno.serve(async (req) => {
 
   let corpo: {
     acao?: unknown; sql?: unknown; horas?: unknown; de?: unknown; ate?: unknown; consulta?: unknown; quantos?: unknown;
-    id?: unknown; email?: unknown;
+    id?: unknown; email?: unknown; lembrete?: unknown;
   };
   try {
     corpo = await req.json();
@@ -79,8 +80,10 @@ Deno.serve(async (req) => {
     return error ? json({ erro: error.message }, 400) : json({ dados: data });
   }
 
-  if (corpo.acao === "agenda" || corpo.acao === "gmail_buscar" || corpo.acao === "gmail_ler" || corpo.acao === "gmail_enviar") {
+  const acoesGoogle = ["agenda", "agenda_lembrete", "gmail_buscar", "gmail_ler", "gmail_enviar"];
+  if (acoesGoogle.includes(String(corpo.acao))) {
     try {
+      if (corpo.acao === "agenda_lembrete") return json({ dados: await criarLembrete(db, corpo.lembrete) });
       if (corpo.acao === "agenda") return json({ dados: await agenda(db, String(corpo.de ?? ""), String(corpo.ate ?? "")) });
       if (corpo.acao === "gmail_enviar") return json({ dados: await gmailEnviar(db, corpo.email) });
       if (corpo.acao === "gmail_buscar") {

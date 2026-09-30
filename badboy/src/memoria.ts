@@ -7,6 +7,8 @@ export type Papel = "user" | "assistant";
 export interface Mensagem {
   papel: Papel;
   conteudo: string;
+  // Quando foi gravada (ISO). Vai para o Claude como carimbo nas mensagens do dono.
+  em?: string;
 }
 
 export interface Fato {
@@ -38,9 +40,28 @@ export class Memoria {
     });
   }
 
-  async salvarMensagem(chatId: number, papel: Papel, conteudo: string): Promise<void> {
-    const { error } = await this.db.from("badboy_mensagens").insert({ chat_id: chatId, papel, conteudo });
+  async salvarMensagem(chatId: number, papel: Papel, conteudo: string): Promise<number> {
+    const { data, error } = await this.db
+      .from("badboy_mensagens")
+      .insert({ chat_id: chatId, papel, conteudo })
+      .select("id")
+      .single();
     if (error) throw new Error(`Supabase (salvar mensagem): ${error.message}`);
+    return data.id as number;
+  }
+
+  // Id da mensagem mais recente do dono na conversa.
+  async ultimaDoDono(chatId: number): Promise<number | null> {
+    const { data, error } = await this.db
+      .from("badboy_mensagens")
+      .select("id")
+      .eq("chat_id", chatId)
+      .eq("papel", "user")
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`Supabase (última mensagem): ${error.message}`);
+    return (data?.id as number | undefined) ?? null;
   }
 
   async historico(chatId: number): Promise<Mensagem[]> {
@@ -55,13 +76,15 @@ export class Memoria {
 
     const { data, error } = await this.db
       .from("badboy_mensagens")
-      .select("papel, conteudo")
+      .select("papel, conteudo, criada_em")
       .eq("chat_id", chatId)
       .order("id", { ascending: false })
       .limit(quantas);
     if (error) throw new Error(`Supabase (ler histórico): ${error.message}`);
 
-    const mensagens = (data ?? []).reverse() as Mensagem[];
+    const mensagens: Mensagem[] = (data ?? [])
+      .reverse()
+      .map((m) => ({ papel: m.papel as Papel, conteudo: m.conteudo as string, em: m.criada_em as string }));
     // A conversa enviada ao Claude precisa começar com o usuário.
     while (mensagens[0]?.papel === "assistant") mensagens.shift();
     return mensagens;
@@ -123,7 +146,7 @@ export class Memoria {
   }
 
   // Ação irreversível preparada pelo Claude, esperando o botão do dono.
-  async criarPendente(tipo: "email", dados: unknown): Promise<number> {
+  async criarPendente(tipo: "email" | "fatos", dados: unknown): Promise<number> {
     const { data, error } = await this.db.from("badboy_pendentes").insert({ tipo, dados }).select("id").single();
     if (error) throw new Error(`Supabase (criar pendente): ${error.message}`);
     return data.id as number;

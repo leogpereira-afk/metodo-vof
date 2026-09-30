@@ -6,9 +6,12 @@
 // Boy recebe só os eventos e os e-mails.
 //
 // Escopos da conexão: gmail.readonly, gmail.send, calendar.readonly,
-// calendar.app.created e drive.readonly. Esta ponte lê agenda e Gmail e envia
-// e-mail. O envio só é chamado depois do toque do dono no botão "Enviar" do
-// Telegram; aqui o e-mail é validado de novo antes de sair.
+// calendar.app.created e drive.readonly. Esta ponte lê agenda e Gmail, envia
+// e-mail e cria lembretes. O envio só é chamado depois do toque do dono no
+// botão "Enviar" do Telegram; aqui o e-mail é validado de novo antes de sair.
+// Os lembretes vão para um calendário próprio ("Lembretes do Don Boy"): com
+// calendar.app.created, a ponte só escreve no calendário que ela criou, nunca
+// nos calendários de sempre do dono.
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.117.2";
 import { montarMime, paraBase64Url, validarEmail } from "../src/email.ts";
@@ -68,8 +71,13 @@ export async function tokenGoogle(db: SupabaseClient): Promise<string> {
   return token;
 }
 
-async function google(token: string, url: string): Promise<Record<string, unknown>> {
-  const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(25_000) });
+async function google(token: string, url: string, corpo?: unknown): Promise<Record<string, unknown>> {
+  const resp = await fetch(url, {
+    method: corpo === undefined ? "GET" : "POST",
+    headers: { Authorization: `Bearer ${token}`, ...(corpo === undefined ? {} : { "Content-Type": "application/json" }) },
+    body: corpo === undefined ? undefined : JSON.stringify(corpo),
+    signal: AbortSignal.timeout(25_000),
+  });
   const dados = (await resp.json().catch(() => ({}))) as Record<string, unknown>;
   if (!resp.ok) {
     const erro = (dados.error as { message?: string } | undefined)?.message;
@@ -248,4 +256,44 @@ export async function gmailEnviar(db: SupabaseClient, entrada: unknown) {
     throw new Error(`Google ${resp.status}${erro ? `: ${erro}` : ""}`);
   }
   return { id: texto(dados.id), conversa: texto(dados.threadId), para: email.para, assunto };
+}
+
+export const CALENDARIO_LEMBRETES = "Lembretes do Don Boy";
+const FUSO = "America/Sao_Paulo";
+
+// O calendário dos lembretes: acha pelo nome entre os que a conta possui; na
+// primeira vez, cria.
+async function calendarioDeLembretes(token: string): Promise<string> {
+  const lista = await google(token, `${CALENDAR}/users/me/calendarList?maxResults=250&minAccessRole=owner`);
+  const achado = ((lista.items as Record<string, unknown>[]) ?? []).find((c) => texto(c.summary) === CALENDARIO_LEMBRETES);
+  if (achado) return texto(achado.id);
+  const novo = await google(token, `${CALENDAR}/calendars`, { summary: CALENDARIO_LEMBRETES, timeZone: FUSO });
+  return texto(novo.id);
+}
+
+// Lembrete do dono para ele mesmo: evento no calendário dos lembretes, sem
+// convidados, com aviso na hora e 30 minutos antes. Horário de Brasília.
+export async function criarLembrete(db: SupabaseClient, entrada: unknown) {
+  const e = (entrada ?? {}) as Record<string, unknown>;
+  const titulo = texto(e.titulo).replace(/[\r\n]+/g, " ").slice(0, 200);
+  const data = texto(e.data);
+  const hora = texto(e.hora);
+  const duracao = Math.min(Math.max(Math.trunc(Number(e.duracaoMin)) || 15, 5), 480);
+  const nota = texto(e.nota).slice(0, 1000);
+  if (!titulo) throw new Error("informe o título do lembrete");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) throw new Error("data no formato AAAA-MM-DD");
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) throw new Error("hora no formato HH:MM");
+  const inicio = Date.parse(`${data}T${hora}:00-03:00`);
+  if (!Number.isFinite(inicio)) throw new Error("data ou hora inválida");
+
+  const token = await tokenGoogle(db);
+  const calendario = await calendarioDeLembretes(token);
+  const evento = await google(token, `${CALENDAR}/calendars/${encodeURIComponent(calendario)}/events?sendUpdates=none`, {
+    summary: titulo,
+    description: nota,
+    start: { dateTime: new Date(inicio).toISOString(), timeZone: FUSO },
+    end: { dateTime: new Date(inicio + duracao * 60_000).toISOString(), timeZone: FUSO },
+    reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 0 }, { method: "popup", minutes: 30 }] },
+  });
+  return { id: texto(evento.id), titulo, data, hora, duracao_min: duracao, calendario: CALENDARIO_LEMBRETES, link: texto(evento.htmlLink) };
 }
