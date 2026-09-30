@@ -1,0 +1,84 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { MARCA_REGISTRO, comRegistroInterno } from "../src/claude.ts";
+import { SEGREDO_PONTE, Sistemas } from "../src/sistemas.ts";
+
+const URL = "https://segundo.invalid/functions/v1/donboy-ponte";
+
+function montar(opcoes: { token?: string | null; status?: number; dados?: unknown; erroPrincipal?: string } = {}) {
+  const chamadas = { segredo: 0, fetch: [] as { url: string; init: RequestInit }[], principal: [] as string[] };
+  const memoria = {
+    consultarBanco: async (sql: string) => {
+      chamadas.principal.push(sql);
+      return [{ origem: "principal" }];
+    },
+    novidades: async () => {
+      if (opcoes.erroPrincipal) throw new Error(opcoes.erroPrincipal);
+      return [{ tabela: "recebimentos", linhas: 3 }];
+    },
+    segredo: async (nome: string) => {
+      assert.equal(nome, SEGREDO_PONTE);
+      chamadas.segredo++;
+      return opcoes.token === undefined ? "t".repeat(64) : opcoes.token;
+    },
+  };
+  const buscar = (async (url: string, init: RequestInit) => {
+    chamadas.fetch.push({ url, init });
+    return new Response(JSON.stringify(opcoes.status && opcoes.status >= 400 ? { erro: "falhou lá" } : { dados: opcoes.dados ?? [{ origem: "segundo" }] }), {
+      status: opcoes.status ?? 200,
+    });
+  }) as typeof fetch;
+  return { sistemas: new Sistemas(memoria, URL, buscar), chamadas };
+}
+
+test("principal consulta direto; segundo vai pela ponte com o token do Vault", async () => {
+  const { sistemas, chamadas } = montar();
+  assert.deepEqual(await sistemas.consultar("principal", "select 1"), [{ origem: "principal" }]);
+  assert.deepEqual(chamadas.principal, ["select 1"]);
+  assert.equal(chamadas.fetch.length, 0);
+
+  assert.deepEqual(await sistemas.consultar("segundo", "select 2"), [{ origem: "segundo" }]);
+  await sistemas.consultar("segundo", "select 3");
+  assert.equal(chamadas.segredo, 1, "o token é lido do Vault uma vez só");
+  assert.equal(chamadas.fetch.length, 2);
+  const { url, init } = chamadas.fetch[0]!;
+  assert.equal(url, URL);
+  assert.equal((init.headers as Record<string, string>)["x-donboy-token"], "t".repeat(64));
+  assert.deepEqual(JSON.parse(init.body as string), { acao: "consultar", sql: "select 2" });
+});
+
+test("ponte recusada (401): erro claro e o token é relido na próxima", async () => {
+  const { sistemas, chamadas } = montar({ status: 401 });
+  await assert.rejects(sistemas.consultar("segundo", "select 1"), /recusou o acesso/);
+  await assert.rejects(sistemas.consultar("segundo", "select 1"), /recusou o acesso/);
+  assert.equal(chamadas.segredo, 2);
+});
+
+test("ponte sem token no Vault: avisa que não está configurada", async () => {
+  const { sistemas, chamadas } = montar({ token: null });
+  await assert.rejects(sistemas.consultar("segundo", "select 1"), /não configurada/);
+  assert.equal(chamadas.fetch.length, 0);
+});
+
+test("erro do segundo sistema chega com a mensagem de lá", async () => {
+  const { sistemas } = montar({ status: 400 });
+  await assert.rejects(sistemas.consultar("segundo", "select x"), /falhou lá/);
+});
+
+test("novidades: um sistema com erro não esconde o outro", async () => {
+  const { sistemas, chamadas } = montar({ erroPrincipal: "fora do ar", dados: [{ tabela: "leo_estado", linhas: 1 }] });
+  const novidades = await sistemas.novidades(24);
+  assert.deepEqual(novidades, [
+    { sistema: "principal", ok: false, erro: "fora do ar" },
+    { sistema: "segundo", ok: true, tabelas: [{ tabela: "leo_estado", linhas: 1 }] },
+  ]);
+  assert.deepEqual(JSON.parse(chamadas.fetch[0]!.init.body as string), { acao: "novidades", horas: 24 });
+});
+
+test("registro interno: só entra no histórico quando houve consulta", () => {
+  assert.equal(comRegistroInterno("Oi, Léo.", []), "Oi, Léo.");
+  const salvo = comRegistroInterno("Achei 3 contas.", ["consultou o sistema segundo: select 1", "novidades das últimas 24 h nos dois sistemas"]);
+  assert.ok(salvo.startsWith("Achei 3 contas.\n\n"));
+  assert.ok(salvo.includes(MARCA_REGISTRO));
+  assert.ok(salvo.includes("consultou o sistema segundo: select 1 | novidades das últimas 24 h"));
+});

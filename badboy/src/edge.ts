@@ -15,6 +15,7 @@ import { COMANDOS, criarBot } from "./bot.ts";
 import { Cerebro } from "./claude.ts";
 import { lerConfig, type Ambiente, type Config } from "./config.ts";
 import { Memoria } from "./memoria.ts";
+import { Sistemas } from "./sistemas.ts";
 
 declare const EdgeRuntime: { waitUntil(promessa: Promise<unknown>): void };
 
@@ -49,6 +50,7 @@ interface Contexto {
   config: Config;
   bot: Bot;
   memoria: Memoria;
+  sistemas: Sistemas;
   segredo: string;
 }
 
@@ -59,9 +61,10 @@ function preparar(): Promise<Contexto> {
   contexto ??= (async () => {
     const config = lerConfig(ambiente());
     const memoria = new Memoria(config);
-    const bot = criarBot(config, memoria, new Cerebro(config, memoria));
+    const sistemas = new Sistemas(memoria, config.urlPonte);
+    const bot = criarBot(config, memoria, new Cerebro(config, memoria, sistemas));
     await bot.init();
-    return { config, bot, memoria, segredo: await segredoWebhook(config.telegramToken) };
+    return { config, bot, memoria, sistemas, segredo: await segredoWebhook(config.telegramToken) };
   })();
   contexto.catch(() => {
     contexto = null; // segredo cadastrado depois: tenta de novo na próxima
@@ -144,19 +147,28 @@ async function configurarEDiagnosticar(): Promise<Record<string, unknown>> {
     resultado.supabase = { ok: false, erro: (e as Error).message };
   }
 
-  // Leitura dos sistemas: conta as tabelas visíveis pelo papel de leitura.
-  try {
-    const linhas = (await ctx.memoria.consultarBanco(
-      "select count(*) as tabelas from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname in ('donboy', 'public') and c.relkind in ('r', 'v', 'm', 'p') and (has_table_privilege(c.oid, 'select') or has_any_column_privilege(c.oid, 'select'))",
-    )) as { tabelas: number }[];
-    resultado.leitura_sistemas = { ok: true, tabelas_visiveis: linhas[0]?.tabelas ?? 0 };
-  } catch (e) {
-    resultado.leitura_sistemas = { ok: false, erro: (e as Error).message };
+  // Leitura dos sistemas: conta as tabelas visíveis pelo papel de leitura,
+  // em cada um dos dois bancos, e confere a busca de novidades.
+  const contarTabelas =
+    "select count(*) as tabelas from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname in ('donboy', 'public') and c.relkind in ('r', 'v', 'm', 'p') and (has_table_privilege(c.oid, 'select') or has_any_column_privilege(c.oid, 'select'))";
+  for (const sistema of ["principal", "segundo"] as const) {
+    try {
+      const linhas = (await ctx.sistemas.consultar(sistema, contarTabelas)) as { tabelas: number }[];
+      resultado[`leitura_${sistema}`] = { ok: true, tabelas_visiveis: linhas[0]?.tabelas ?? 0 };
+    } catch (e) {
+      resultado[`leitura_${sistema}`] = { ok: false, erro: (e as Error).message };
+    }
   }
+  const novidades = await ctx.sistemas.novidades(1);
+  resultado.novidades = Object.fromEntries(novidades.map((n) => [n.sistema, n.ok ? "ok" : n.erro]));
 
-  const tudoOk = [resultado.telegram, resultado.anthropic, resultado.supabase, resultado.leitura_sistemas].every(
-    (r) => (r as { ok: boolean }).ok,
-  );
+  const tudoOk = [
+    resultado.telegram,
+    resultado.anthropic,
+    resultado.supabase,
+    resultado.leitura_principal,
+    resultado.leitura_segundo,
+  ].every((r) => (r as { ok: boolean }).ok) && novidades.every((n) => n.ok);
   return { pronto: tudoOk && (resultado.webhook as { configurado: boolean }).configurado, ...resultado };
 }
 

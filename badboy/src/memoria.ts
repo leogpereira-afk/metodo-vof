@@ -146,6 +146,21 @@ export class Memoria {
     return data;
   }
 
+  // O que mudou nas últimas horas nos sistemas deste projeto (mesmas travas
+  // de consultarBanco: papel de leitura e GET).
+  async novidades(horas: number): Promise<unknown> {
+    const { data, error } = await this.db.rpc("badboy_novidades", { p_horas: horas }, { get: true });
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  // Segredo do Vault (só os com prefixo donboy_), como o token da ponte.
+  async segredo(nome: string): Promise<string | null> {
+    const { data, error } = await this.db.rpc("badboy_segredo", { p_nome: nome }, { get: true });
+    if (error) throw new Error(`Supabase (segredo): ${error.message}`);
+    return (data as string | null) ?? null;
+  }
+
   async resumoDoMes(fuso: string): Promise<ResumoMes> {
     const { data, error } = await this.db.rpc("badboy_resumo_custo_mes", { p_fuso: fuso }).single();
     if (error) throw new Error(`Supabase (resumo do mês): ${error.message}`);
