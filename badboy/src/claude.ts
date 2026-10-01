@@ -417,7 +417,11 @@ export class Cerebro {
     client?: Anthropic,
   ) {
     this.client = client ?? new Anthropic({ apiKey: config.anthropicApiKey, timeout: 60000, maxRetries: 0 });
-    this.ferramentas = [...FERRAMENTAS, ...ferramentasWeb(config.fuso)];
+    // A API também limita a gramática compilada: reserve strict para ações.
+    // Consultas mantêm esquema, coerção e validação nos respectivos handlers/SQL.
+    this.ferramentas = [...FERRAMENTAS, ...ferramentasWeb(config.fuso)].map((f) =>
+      "strict" in f && FERRAMENTAS_LEITURA.has(f.name) ? { ...f, strict: false } : f
+    );
   }
 
   async responder(

@@ -209,6 +209,7 @@ test('conversa normal respeita limite de 20 ferramentas estritas sem remover cap
  {beta:{messages:{create:async(p:any)=>{enviadas=p.tools;return resposta([{type:'text',text:'Olá, posso ajudar.'}]);}}}} as any);
  await c.responder([{papel:'user',conteudo:'Olá'}],'01/10/2026');
  assert.ok(enviadas.filter(t=>t.strict===true).length<=20,'API Claude recusa mais de 20 ferramentas strict');
+ for(const nome of ['consultar_conhecimento_mubisys','consultar_recebiveis','consultar_banco','ver_agenda','buscar_emails'])assert.notEqual(enviadas.find(t=>t.name===nome).strict,true,'consultas não devem aumentar a gramática estrita');
  for(const nome of ['consultar_conhecimento_mubisys','registrar_tarefa','preparar_registro_central','lancar_na_central','salvar_fato'])assert.ok(enviadas.some(t=>t.name===nome),nome);
  for(const nome of ['registrar_tarefa','preparar_registro_central','lancar_na_central','salvar_fato'])assert.equal(enviadas.find(t=>t.name===nome).strict,true);
 });
