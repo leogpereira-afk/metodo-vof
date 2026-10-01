@@ -31,6 +31,14 @@ export interface Lembrete {
 export const TIPOS_ERP = ["os", "orcamento", "cliente", "fornecedor"] as const;
 export type TipoErp = (typeof TIPOS_ERP)[number];
 
+export interface LancamentoCentral {
+  operacao: "adicionar" | "atualizar";
+  lista: string;
+  id: string;
+  sublista: string;
+  dados: Record<string, unknown>;
+}
+
 export interface Solicitacao {
   itens: { descricao: string; qtd: number; unid: string }[];
   setor: string;
@@ -100,6 +108,16 @@ export class Sistemas {
   // Solicitação de material ao módulo Compras. Só depois do botão do dono.
   async solicitarCompra(solicitacao: Solicitacao): Promise<{ codigo?: string; numero?: number }> {
     return (await this.ponte({ acao: "compras_solicitar", solicitacao })) as { codigo?: string; numero?: number };
+  }
+
+  // Lança na Central do Léo (adicionar um item ou atualizar campos dele). A
+  // ponte confere a lista; o banco trava, sobe a versão e guarda o antes.
+  async lancarCentral(lancamento: LancamentoCentral): Promise<unknown> {
+    return await this.ponte({ acao: "central", ...lancamento });
+  }
+
+  async desfazerCentral(lancamento: number): Promise<unknown> {
+    return await this.ponte({ acao: "central_desfazer", lancamento });
   }
 
   // Envio de e-mail pela mesma conexão Google. Só é chamado depois do toque

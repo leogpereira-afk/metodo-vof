@@ -203,6 +203,39 @@ const FERRAMENTAS: Anthropic.Beta.BetaToolUnion[] = [
     },
   },
   {
+    name: "lancar_na_central",
+    description:
+      "Grava na Central do Léo (o sistema pessoal dele, no banco segundo, leo_estado): adiciona um item a uma lista (viagens, agenda, demandas, documentos, pessoas, exames, contas, patrimonio...), adiciona um item numa sublista de um item (por exemplo o hotel, a passagem ou o custo de uma viagem) ou atualiza campos de um item. Não apaga nada. Antes, leia um item da mesma lista com consultar_banco e use os mesmos campos e formatos (datas AAAA-MM-DD, valores em número). Cada lançamento volta com um número para desfazer.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        operacao: { type: "string", enum: ["adicionar", "atualizar"] },
+        lista: { type: "string", description: "Nome da lista em leo_estado.dados (ex.: viagens, agenda, demandas, documentos)." },
+        id: { type: "string", description: "Id do item: para atualizar, ou para adicionar numa sublista dele. Vazio para adicionar um item novo na lista." },
+        sublista: { type: "string", description: "Sublista do item (viagens: hoteis, passagens, custos, roteiro, tickets, lugares), ou vazio." },
+        dados_json: {
+          type: "string",
+          description: "Objeto JSON com os campos: o item inteiro ao adicionar, ou só os campos que mudam ao atualizar. Sem o campo id.",
+        },
+      },
+      required: ["operacao", "lista", "id", "sublista", "dados_json"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "desfazer_lancamento_central",
+    description:
+      "Desfaz um lançamento seu na Central do Léo pelo número que o lançamento devolveu: o item volta ao que era, ou sai da lista se foi criado. Só funciona se ninguém mexeu no item depois.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: { lancamento: { type: "integer", description: "Número do lançamento." } },
+      required: ["lancamento"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "criar_lembrete",
     description:
       "Cria um lembrete para o próprio dono na agenda Google dele, num calendário separado (\"Lembretes do Don Boy\"), com aviso na hora e 30 minutos antes. Não convida ninguém e não mexe nos outros calendários. Use quando ele pedir para lembrar de algo, ou para bloquear um horário só dele (treino, foco, preparação de reunião). Não precisa pedir confirmação.",
@@ -323,7 +356,8 @@ export class Cerebro {
     private readonly memoria: Memoria,
     private readonly sistemas: Pick<
       Sistemas,
-      "consultar" | "novidades" | "agenda" | "buscarEmails" | "lerEmail" | "criarLembrete" | "consultarErp"
+      | "consultar" | "novidades" | "agenda" | "buscarEmails" | "lerEmail" | "criarLembrete" | "consultarErp"
+      | "lancarCentral" | "desfazerCentral"
     >,
   ) {
     this.client = new Anthropic({ apiKey: config.anthropicApiKey });
@@ -532,6 +566,43 @@ export class Cerebro {
         };
       } catch (e) {
         return erro(`Falha ao preparar: ${(e as Error).message}`);
+      }
+    }
+
+    if (bloco.name === "lancar_na_central") {
+      const entrada = bloco.input as { operacao?: unknown; lista?: unknown; id?: unknown; sublista?: unknown; dados_json?: unknown };
+      let dados: unknown;
+      try {
+        dados = JSON.parse(String(entrada.dados_json ?? ""));
+      } catch {
+        return erro("dados_json precisa ser um objeto JSON válido.");
+      }
+      if (!dados || typeof dados !== "object" || Array.isArray(dados)) return erro("dados_json precisa ser um objeto JSON.");
+      const operacao = entrada.operacao === "atualizar" ? "atualizar" : "adicionar";
+      const lista = String(entrada.lista ?? "").trim();
+      const id = String(entrada.id ?? "").trim();
+      const sublista = String(entrada.sublista ?? "").trim();
+      const alvo = `${lista}${id ? ` (item ${id})` : ""}${sublista ? ` > ${sublista}` : ""}`;
+      try {
+        const resultado = await this.sistemas.lancarCentral({ operacao, lista, id, sublista, dados: dados as Record<string, unknown> });
+        const numero = (resultado as { lancamento?: number } | null)?.lancamento;
+        consultas.push(`${operacao === "atualizar" ? "atualizou" : "lançou"} na Central: ${alvo} (lançamento ${numero ?? "?"})`);
+        return { type: "tool_result", tool_use_id: bloco.id, content: limitar(JSON.stringify(resultado)) };
+      } catch (e) {
+        consultas.push(`tentou lançar na Central (${alvo}) e deu erro`);
+        return erro(`A Central recusou: ${(e as Error).message}`);
+      }
+    }
+
+    if (bloco.name === "desfazer_lancamento_central") {
+      const lancamento = Math.trunc(Number((bloco.input as { lancamento?: unknown }).lancamento));
+      if (!Number.isSafeInteger(lancamento) || lancamento <= 0) return erro("Informe o número do lançamento.");
+      try {
+        const resultado = await this.sistemas.desfazerCentral(lancamento);
+        consultas.push(`desfez o lançamento ${lancamento} na Central`);
+        return { type: "tool_result", tool_use_id: bloco.id, content: JSON.stringify(resultado) };
+      } catch (e) {
+        return erro(`Não deu para desfazer: ${(e as Error).message}`);
       }
     }
 
