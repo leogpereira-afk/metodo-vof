@@ -8,7 +8,7 @@ test("hotel altera só a viagem escolhida, preserva outros dados e rejeita confl
     await db.exec(
       `create role anon;create role authenticated;create role service_role;create table leo_estado(id boolean primary key,mt bigint,dados jsonb,atualizado_em timestamptz);`,
     );
-    await db.exec(await readFile("supabase/migrations-segundo/0003_donboy_central.sql", "utf8"));
+    await db.exec(await readFile("supabase/migrations-segundo/0004_donboy_central_confirmacao.sql", "utf8"));
     const viagem = { id: "v1", cidade: "Porto Seguro", hoteis: [] };
     await db.query("insert into leo_estado values(true,100,$1,now())", [
       JSON.stringify({ viagens: [viagem, { id: "v2", cidade: "BH" }], bancos: [{ id: "b1", nome: "preservado" }] }),
@@ -23,6 +23,7 @@ test("hotel altera só a viagem escolhida, preserva outros dados e rejeita confl
     assert.equal(r.dados.viagens[1].cidade, "BH");
     assert.equal(r.dados.bancos[0].nome, "preservado");
     assert.ok(Number(r.mt) > 100);
+    assert.equal(String(r.dados._mt),String(r.mt));
     await assert.rejects(
       db.query("select badboy_central_aplicar($1,$2,$3,$4,$5)", ["op2", "hotel", "v1", viagem, { ...hotel, id: "h2" }]),
       /conflito/i,
@@ -41,7 +42,7 @@ test("novos cadastros aparecem nos filtros da Central e datas consideram o regis
     await db.exec(
       `create role anon;create role authenticated;create role service_role;create table leo_estado(id boolean primary key,mt bigint,dados jsonb,atualizado_em timestamptz);`,
     );
-    await db.exec(await readFile("supabase/migrations-segundo/0003_donboy_central.sql", "utf8"));
+    await db.exec(await readFile("supabase/migrations-segundo/0004_donboy_central_confirmacao.sql", "utf8"));
     const viagem = {
       id: "v1",
       cidade: "Destino teste",

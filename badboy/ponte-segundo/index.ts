@@ -1,6 +1,7 @@
 // donboy-ponte: Edge Function do SEGUNDO projeto Supabase. O Don Boy mora no
-// projeto principal; por aqui ele LÊ os sistemas deste projeto e, depois do
-// botão de confirmação do dono, envia e-mail e pede material ao Compras.
+// projeto principal; por aqui ele LÊ os sistemas deste projeto, lança na
+// Central do Léo a pedido do dono e, depois do botão de confirmação, envia
+// e-mail e pede material ao Compras.
 //
 // POST com o header x-donboy-token e o corpo:
 //   { "acao": "consultar", "sql": "select ..." }  → até 200 linhas em JSON
@@ -12,6 +13,10 @@
 //   { "acao": "agenda_lembrete", "lembrete": { titulo, data, hora, duracaoMin, nota } }
 //   { "acao": "mubisys", "tipo": "os|orcamento|cliente|fornecedor", "chave": "..." } → ERP ao vivo, só leitura
 //   { "acao": "compras_solicitar", "solicitacao": { itens, setor, urgencia, ... } } → SC no módulo Compras
+//   { "acao": "central", "operacao": "adicionar|atualizar", "lista", "id"?, "sublista"?, "dados" } → lança na Central
+//   { "acao": "central_desfazer", "lancamento": 12 } → desfaz um lançamento na Central
+// Central do Léo pelas funções do banco (migrations-segundo/0003): trava,
+// versão que a Central usa para sincronizar e registro para desfazer.
 // Agenda e Gmail pela conexão Google da Central (google.ts). O envio só é
 // pedido depois do toque do dono no botão "Enviar" do Telegram.
 //
@@ -22,6 +27,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.117.2";
 import { validarRegistroCentral } from "../src/central.ts";
+import { prepararLancamento } from "./central.ts";
 import { agenda, criarLembrete, gmailBuscar, gmailEnviar, gmailLer } from "./google.ts";
 import { consultarMubisys, type SolicitacaoCompra, solicitarCompra } from "./mubisys.ts";
 
@@ -80,6 +86,7 @@ Deno.serve(async (req) => {
     chave?: unknown;
     solicitacao?: unknown;
     registro?: unknown;
+    operacao?: unknown; lista?: unknown; sublista?: unknown; dados?: unknown; lancamento?: unknown;
   };
   try {
     corpo = await req.json();
@@ -121,6 +128,25 @@ Deno.serve(async (req) => {
   if (corpo.acao === "novidades") {
     const horas = Math.min(Math.max(Math.trunc(Number(corpo.horas) || 24), 1), 720);
     const { data, error } = await db.rpc("badboy_novidades", { p_horas: horas }, { get: true });
+    return error ? json({ erro: error.message }, 400) : json({ dados: data });
+  }
+
+  // Central do Léo. Erro de conferência (lista proibida, item malformado,
+  // item que não existe) volta como 400 com a explicação.
+  if (corpo.acao === "central") {
+    let pedido: Record<string, unknown>;
+    try {
+      pedido = prepararLancamento(corpo);
+    } catch (e) {
+      return json({ erro: (e as Error).message }, 400);
+    }
+    const { data, error } = await db.rpc("donboy_central_gravar", { p: pedido });
+    return error ? json({ erro: error.message }, 400) : json({ dados: data });
+  }
+  if (corpo.acao === "central_desfazer") {
+    const lancamento = Math.trunc(Number(corpo.lancamento));
+    if (!Number.isSafeInteger(lancamento) || lancamento <= 0) return json({ erro: "informe o número do lançamento" }, 400);
+    const { data, error } = await db.rpc("donboy_central_desfazer", { p_lancamento: lancamento });
     return error ? json({ erro: error.message }, 400) : json({ dados: data });
   }
 

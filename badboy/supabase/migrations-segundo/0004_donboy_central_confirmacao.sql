@@ -54,8 +54,8 @@ begin
   if p_tipo='demanda' and coalesce(novo->>'titulo','')='' then raise exception 'título obrigatório'; end if;
  end if;
  if indice is null then lista=lista||jsonb_build_array(novo); else lista=jsonb_set(lista,array[indice::text],novo); end if;
- versao=greatest(versao+1,(extract(epoch from clock_timestamp())*1000)::bigint);
- update public.leo_estado set dados=jsonb_set(estado,array[colecao],lista),mt=versao,atualizado_em=now() where id=true;
+ versao=greatest(versao+1,coalesce((estado->>'_mt')::numeric::bigint,0)+1,(extract(epoch from clock_timestamp())*1000)::bigint);
+ update public.leo_estado set dados=jsonb_set(jsonb_set(estado,array[colecao],lista),'{_mt}',to_jsonb(versao)),mt=versao,atualizado_em=now() where id=true;
  resultado=jsonb_build_object('gravado',true,'origem','Central do Léo','tipo',p_tipo,'id',p_id,'item',novo,'mt',versao);
  insert into public.donboy_central_operacoes(chave,pedido,resultado) values(p_chave,pedido,resultado);
  return resultado;

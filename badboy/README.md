@@ -50,6 +50,14 @@ Telegram ──webhook──▶ Edge Function badboy-telegram ──▶ Claude (
   - `preparar_solicitacao_compra`: solicitação de material ao módulo Compras,
     pela mesma porta do link público, depois do botão Solicitar (migração
     `0007`).
+- **Lançar na Central do Léo** (`lancar_na_central`, `desfazer_lancamento_central`):
+  adiciona um item a uma lista, adiciona numa sublista (hotel, passagem, custo
+  de viagem) ou atualiza campos. A ponte confere a lista (`ponte-segundo/central.ts`:
+  empresas, lideranças, planejamento e organogramas ficam fora; sublistas só
+  com objetos) e as funções do banco (`migrations-segundo/0003`) travam a
+  linha, sobem as versões que a Central usa para sincronizar e guardam o antes
+  e o depois em `donboy_central_log`. Nada é apagado; desfazer vale enquanto
+  ninguém mexer no item depois.
 - **Briefing da manhã**: todo dia às 6h30 de Brasília o pg_cron chama
   `POST /badboy-telegram?rotina=briefing` (migração `0006`, com o token da
   ponte lido do Vault). O Don Boy grava o pedido como um "bom dia" do dono,
