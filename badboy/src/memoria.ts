@@ -1,3 +1,4 @@
+import type {AnexoRecebido} from "./midia.ts";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Config } from "./config.ts";
 import type { RegistroUso, ResumoMes } from "./custo.ts";
@@ -5,6 +6,7 @@ import type { RegistroUso, ResumoMes } from "./custo.ts";
 export type Papel = "user" | "assistant";
 
 export interface Mensagem {
+  anexos?: AnexoRecebido[];
   papel: Papel;
   conteudo: string;
   // Quando foi gravada (ISO). Vai para o Claude como carimbo nas mensagens do dono.
@@ -40,10 +42,10 @@ export class Memoria {
     });
   }
 
-  async salvarMensagem(chatId: number, papel: Papel, conteudo: string): Promise<number> {
+  async salvarMensagem(chatId: number, papel: Papel, conteudo: string, anexos: AnexoRecebido[] = []): Promise<number> {
     const { data, error } = await this.db
       .from("badboy_mensagens")
-      .insert({ chat_id: chatId, papel, conteudo })
+      .insert({ chat_id: chatId, papel, conteudo, anexos })
       .select("id")
       .single();
     if (error) throw new Error(`Supabase (salvar mensagem): ${error.message}`);
@@ -89,7 +91,7 @@ export class Memoria {
 
     const { data, error } = await this.db
       .from("badboy_mensagens")
-      .select("papel, conteudo, criada_em")
+      .select("papel, conteudo, criada_em, anexos")
       .eq("chat_id", chatId)
       .order("id", { ascending: false })
       .limit(quantas);
@@ -97,7 +99,7 @@ export class Memoria {
 
     const mensagens: Mensagem[] = (data ?? [])
       .reverse()
-      .map((m) => ({ papel: m.papel as Papel, conteudo: m.conteudo as string, em: m.criada_em as string }));
+      .map((m) => ({ papel: m.papel as Papel, conteudo: m.conteudo as string, em: m.criada_em as string, anexos: m.anexos as AnexoRecebido[] }));
     // A conversa enviada ao Claude precisa começar com o usuário.
     while (mensagens[0]?.papel === "assistant") mensagens.shift();
     return mensagens;
@@ -265,6 +267,11 @@ export class Memoria {
     });
     if (error) throw new Error(error.message);
     return data;
+  }
+
+  async registrarUsoMidia(tipo:string,modelo:string,uso:unknown):Promise<void> {
+    const {error}=await this.db.from("badboy_midia_uso").insert({tipo,modelo,uso});
+    if(error)throw Error("Não foi possível registrar uso de mídia.");
   }
 
   async registrarUso(registros: RegistroUso[]): Promise<void> {

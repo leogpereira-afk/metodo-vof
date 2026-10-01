@@ -1,3 +1,4 @@
+import {identificarAnexo, type AnexoRecebido} from "./midia.ts";
 import { previaRegistroCentral, type RegistroCentral } from "./central.ts";
 import { type Api, Bot, type Context, InlineKeyboard, InputFile } from "grammy";
 import { type Cerebro, comRegistroInterno, MARCA_REGISTRO } from "./claude.ts";
@@ -21,7 +22,8 @@ import {
 const AJUDA = [
   "Don Boy às ordens. Me conte o que precisa, como falaria com um velho amigo.",
   "",
-  "/custo — gasto do mês em tokens e dólares",
+  "Envie PDF, foto, áudio ou arquivo de texto. Peça imagens, documentos e e-mails; e-mails saem com sua confirmação.",
+  "/custo — gasto Claude do mês em tokens e dólares",
   "/lembrar [texto] — salva um fato",
   "/fatos — lista os fatos salvos",
   "/esquecer [número] — apaga um fato (pede confirmação)",
@@ -65,7 +67,7 @@ export function criarBot(
 
   bot.command("custo", async (ctx) => {
     const resumo = await memoria.resumoDoMes(config.fuso);
-    await ctx.reply(formatarResumo(resumo, mesPorExtenso(new Date(), config.fuso)));
+    await ctx.reply(formatarResumo(resumo, mesPorExtenso(new Date(), config.fuso)) + "\n\nÁudio e imagens usam uma API complementar; seus custos não estão incluídos neste total do Claude.");
   });
 
   bot.command("lembrar", async (ctx) => {
@@ -126,12 +128,19 @@ export function criarBot(
     await ctx.reply(await executar(leitura.acao, ctx.chat!.id));
   });
 
-  bot.on("message:text", async (ctx) => {
+  bot.on("message", async (ctx) => {
+    const recebidoUpdate=ctx.update as unknown as {_erro_anexo?:string;_anexos?:AnexoRecebido[]};
+    if(recebidoUpdate._erro_anexo)return void await ctx.reply(recebidoUpdate._erro_anexo);
+    let anexos:AnexoRecebido[];
+    try {const a=identificarAnexo(ctx.message);anexos=recebidoUpdate._anexos??(a?[a]:[]);}
+    catch(e){return void await ctx.reply((e as Error).message);}
+    if(!ctx.message.text&&!anexos.length)return void await ctx.reply("Envie texto, PDF, foto, áudio, TXT, CSV, JSON ou Markdown. Vídeos e outros formatos ainda não são processados.");
+    const texto=ctx.message.text||ctx.message.caption||(anexos[0]?.tipo==='audio'?'Áudio recebido: transcreva e responda ao pedido falado, se houver.':'Analise o arquivo enviado e apresente o conteúdo e os pontos principais.');
     const chatId = ctx.chat.id;
     const recebido = (ctx.update as unknown as { _mensagem_id?: number })._mensagem_id;
     const minha = Number.isSafeInteger(recebido)
       ? recebido
-      : await memoria.salvarMensagem(chatId, "user", ctx.message.text);
+      : await memoria.salvarMensagem(chatId, "user", texto, anexos);
 
     const pararDigitando = manterDigitando(ctx);
     try {
@@ -143,7 +152,6 @@ export function criarBot(
     }
   });
 
-  bot.on("message", (ctx) => ctx.reply("Por enquanto eu só leio texto."));
 
   bot.catch(async ({ ctx, error }) => {
     console.error("Erro no update", ctx.update.update_id, error);

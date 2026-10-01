@@ -1,3 +1,4 @@
+import {Midia, identificarAnexo, deBase64, type AnexoRecebido} from "./midia.ts";
 // Ponto de entrada do Don Boy como Supabase Edge Function (badboy-telegram).
 //
 // O Telegram entrega cada mensagem aqui por webhook (POST). A função responde
@@ -69,7 +70,8 @@ function preparar(): Promise<Contexto> {
     const config = lerConfig(ambiente());
     const memoria = new Memoria(config);
     const sistemas = new Sistemas(memoria, config.urlPonte);
-    const cerebro = new Cerebro(config, memoria, sistemas);
+    const midia = new Midia(config, fetch, (tipo,modelo,uso)=>memoria.registrarUsoMidia(tipo,modelo,uso));
+    const cerebro = new Cerebro(config, memoria, sistemas, undefined, midia);
     const bot = criarBot(config, memoria, cerebro, sistemas);
     await bot.init();
     return { config, bot, memoria, sistemas, cerebro, segredo: await segredoWebhook(config.telegramToken) };
@@ -248,6 +250,22 @@ async function perguntaDeTeste(req: Request, pergunta: string): Promise<Response
   });
 }
 
+// Teste autenticado com arquivos pequenos; usa o mesmo validador e o mesmo Claude.
+async function testarMidia(req:Request,ctx:Contexto):Promise<Response>{
+  const corpo=await req.text();if(corpo.length>3_000_000)return json({erro:"Amostra acima de 3 MB."},413);
+  let dados:{pergunta?:string;arquivos?:{tipo:string;nome:string;mime:string;base64:string}[]};
+  try{dados=JSON.parse(corpo);}catch{return json({erro:"JSON inválido."},400);}
+  if(!Array.isArray(dados.arquivos)||!dados.arquivos.length||dados.arquivos.length>2)return json({erro:"Envie 1 ou 2 amostras."},400);
+  const midia=new Midia(ctx.config,fetch,(tipo,modelo,uso)=>ctx.memoria.registrarUsoMidia(tipo,modelo,uso));
+  const blocos=[];
+  for(const a of dados.arquivos){
+    if(!['imagem','pdf','texto','audio'].includes(a.tipo)||typeof a.base64!=='string')return json({erro:"Tipo inválido."},400);
+    blocos.push(...await midia.converter({...a,file_id:'amostra'} as AnexoRecebido,deBase64(a.base64)));
+  }
+  const r=await ctx.cerebro.responder([{papel:'user',conteudo:String(dados.pergunta||'Leia os arquivos e explique o conteúdo.').slice(0,2000)}],dataPorExtenso(new Date(),ctx.config.fuso),{somenteLeitura:true,blocosEntrada:blocos});
+  return json({texto:r.texto,consultas:r.consultas,tipos:blocos.map(b=>b.type),modelos:[...new Set(r.usos.map(u=>u.modelo))]});
+}
+
 Deno.serve(async (req) => {
   try {
     const url = new URL(req.url);
@@ -255,11 +273,14 @@ Deno.serve(async (req) => {
     if (pergunta) return await perguntaDeTeste(req, pergunta);
     if (req.method === "POST" && url.searchParams.get("rotina") === "briefing") return await rotinaBriefing(req);
     if (req.method === "GET") return json({ servico: "Don Boy", versao: "melhorias-1", ok: true });
-    if (req.method === "POST" && ["configurar", "processar", "capacidades"].includes(url.searchParams.get("acao") ?? "")) {
+    if (req.method === "POST" && ["configurar", "processar", "capacidades", "testar-midia"].includes(url.searchParams.get("acao") ?? "")) {
       const ctx = await preparar();
       if (!(await autorizado(req, ctx))) return new Response("não autorizado", { status: 401 });
+      if (url.searchParams.get("acao") === "testar-midia") return await testarMidia(req,ctx);
       if (url.searchParams.get("acao") === "capacidades") return json({
         claude: !!ctx.config.anthropicApiKey,
+        leitura_pdf_imagens_texto: true,
+        audio_e_geracao: new Midia(ctx.config).disponivel(),
         openai_configurada: !!ambiente().OPENAI_API_KEY?.trim(),
         gemini_configurada: !!(ambiente().GEMINI_API_KEY?.trim() || ambiente().GOOGLE_AI_API_KEY?.trim()),
         email: "previa_e_confirmacao_pela_ponte_existente"
@@ -284,7 +305,10 @@ Deno.serve(async (req) => {
     const chat = mensagem?.chat ?? callback?.message?.chat;
     if (de?.id !== ctx.config.donoId || chat?.type !== "private") return new Response("ok");
     if (!Number.isSafeInteger(update.update_id)) return new Response("update inválido", { status: 400 });
-    await ctx.memoria.enfileirar("telegram:" + update.update_id, chat.id, update);
+    let anexos: unknown[] = [], erroAnexo: string|undefined;
+    try { const a=identificarAnexo(mensagem??{}); if(a) anexos=[a]; }
+    catch(e){erroAnexo=(e as Error).message;}
+    await ctx.memoria.enfileirar("telegram:" + update.update_id, chat.id, {...update,_anexos:anexos,_erro_anexo:erroAnexo});
     EdgeRuntime.waitUntil(executarFila(ctx));
     return new Response("ok");
   } catch (e) {
