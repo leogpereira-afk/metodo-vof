@@ -291,21 +291,15 @@ test('PDF e imagem chegam ao Claude como blocos nativos e não apenas legenda',a
  assert.ok(Array.isArray(p.messages.at(-1).content));assert.ok(p.messages.at(-1).content.some((b:any)=>b.type==='document'));
  assert.ok(!p.tools.some((t:any)=>t.name==='gerar_imagem'));
 });
-test('geração de imagem retorna arquivo apenas após serviço concluir; auditoria bloqueia geração',async()=>{
- let chamadas=0,geracoes=0;
- const memoria={listarFatos:async()=>[],listarTarefas:async()=>[],registrarUso:async()=>{}};
- const client={beta:{messages:{create:async()=>++chamadas===1?resposta([{type:'tool_use',id:'img',name:'gerar_imagem',input:{descricao:'Uma casa com jardim',formato:'paisagem'}}],'tool_use'):resposta([{type:'text',text:'A imagem está pronta.'}])}}};
- const midia={disponivel:()=>({leitura:true,audio:true,geracaoImagem:true}),gerarImagem:async()=>{geracoes++;return {nome:'casa.png',titulo:'Casa',bytes:new Uint8Array([137])}}};
- const c=new Cerebro({anthropicApiKey:'teste',modelo:'claude-opus-5-5',esforco:'medium',fuso:'America/Sao_Paulo'},memoria as any,{} as any,client as any,midia as any);
- const r=await c.responder([{papel:'user',conteudo:'Gere uma imagem de uma casa com jardim'}],'01/10/2026');assert.equal(r.anexos[0]?.nome,'casa.png');assert.equal(geracoes,1);
- chamadas=0;const a=await c.responder([{papel:'user',conteudo:'Gere uma imagem'}],'01/10/2026',{somenteLeitura:true});assert.equal(geracoes,1);assert.equal(a.anexos.length,0);
-});
-
-test('geração com resultado incerto não repete cobrança no mesmo turno',async()=>{
- let n=0,geracoes=0;
+test('Claude exclusivo não oferece ferramenta de geração nem promete configuração futura',async()=>{
+ let p:any;
  const c=new Cerebro({anthropicApiKey:'teste',modelo:'claude-opus-5-5',esforco:'medium',fuso:'America/Sao_Paulo'},
  {listarFatos:async()=>[],listarTarefas:async()=>[],registrarUso:async()=>{}} as any,{} as any,
- {beta:{messages:{create:async()=>++n<3?resposta([{type:'tool_use',id:'img'+n,name:'gerar_imagem',input:{descricao:'Um jardim florido',formato:'quadrado'}}],'tool_use'):resposta([{type:'text',text:'Não foi possível concluir a imagem.'}])}}} as any,
- {disponivel:()=>({geracaoImagem:true,audio:true,leitura:true}),gerarImagem:async()=>{geracoes++;throw Error('timeout do provedor');}} as any);
- const r=await c.responder([{papel:'user',conteudo:'Gere uma imagem de um jardim'}],'01/10/2026');assert.equal(geracoes,1);assert.equal(r.anexos.length,0);
+ {beta:{messages:{create:async(x:any)=>{p=x;return resposta([{type:'text',text:'A geração de imagens não está disponível nesta integração Claude.'}]);}}}} as any,
+ {disponivel:()=>({audio:false,geracaoImagem:false,leitura:true})} as any);
+ const r=await c.responder([{papel:'user',conteudo:'Gere uma imagem de uma casa'}],'01/10/2026');
+ assert.ok(!p.tools.some((t:any)=>t.name==='gerar_imagem'));
+ assert.match(JSON.stringify(p.system), /exclusivamente.*Claude/i);
+ assert.doesNotMatch(JSON.stringify(p.system), /explique que falta configuração/);
+ assert.equal(r.anexos.length,0);
 });

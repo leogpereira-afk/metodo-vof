@@ -6,9 +6,6 @@ const ESFORCOS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type Esforco = (typeof ESFORCOS)[number];
 
 export interface Config {
-  openaiApiKey?: string;
-  modeloImagem?: string;
-  modeloAudio?: string;
   telegramToken: string;
   donoId: number;
   anthropicApiKey: string;
@@ -55,9 +52,6 @@ export function lerConfig(env: Ambiente): Config {
   }
 
   return {
-    openaiApiKey: env.OPENAI_API_KEY?.trim(),
-    modeloImagem: env.DONBOY_MODELO_IMAGEM?.trim() || "gpt-image-2.5-flare",
-    modeloAudio: env.DONBOY_MODELO_AUDIO?.trim() || "gpt-4o-mini-transcribe",
     telegramToken,
     donoId,
     anthropicApiKey,

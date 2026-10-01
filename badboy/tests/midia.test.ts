@@ -129,63 +129,16 @@ test("download Telegram confere caminho, redirecionamentos e tamanho efetivo sem
     /caminho/i,
   );
 });
-test("áudio sem credencial informa bloqueio e não finge transcrição", async () => {
-  const m = new Midia({ telegramToken: "t" }, async () => {
+test("Claude exclusivo rejeita áudio antes de baixar e não oferece geração de imagens", async () => {
+  let chamadas = 0;
+  const m = new Midia({ telegramToken: "t", openaiApiKey: "credencial-legada" } as any, async () => {
+    chamadas++;
     throw Error("não deveria chamar");
   });
-  await assert.rejects(
-    m.carregar({
-      tipo: "audio",
-      nome: "v.ogg",
-      mime: "audio/ogg",
-      file_id: "a",
-    }),
-    /OPENAI_API_KEY/,
-  );
-});
-test("transcrição envia arquivo binário ogg e geração usa qualidade alta e PNG original", async () => {
-  let imagem: any, form: any;
-  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
-  const m = new Midia(
-    { telegramToken: "t", openaiApiKey: "chave" },
-    async (url: any, op: any) => {
-      if (String(url).includes("getFile")) {
-        return Response.json({
-          ok: true,
-          result: { file_path: "voice/v.oga" },
-        });
-      }
-      if (String(url).includes("/file/bot")) {
-        return new Response(
-          new TextEncoder().encode("OggS" + ".".repeat(40)),
-        );
-      }
-      if (String(url).endsWith("/transcriptions")) {
-        form = op.body;
-        return Response.json({ text: "Verifique minha agenda amanhã." });
-      }
-      imagem = JSON.parse(op.body);
-      return Response.json({
-        data: [{ b64_json: base64(png) }],
-        usage: { output_tokens: 10 },
-      });
-    },
-  );
-  const blocos = await m.carregar({
-    tipo: "audio",
-    nome: "voz.ogg",
-    mime: "audio/ogg",
-    file_id: "a",
-  });
-  assert.match(JSON.stringify(blocos), /Verifique minha agenda/);
-  assert.equal(form.get("file").name, "voz.ogg");
-  const r = await m.gerarImagem(
-    "Uma sala bem iluminada, sem texto",
-    "paisagem",
-  );
-  assert.equal(imagem.quality, "high");
-  assert.equal(imagem.n, 1);
-  assert.equal(imagem.output_format, "png");
-  assert.equal(r.nome.endsWith(".png"), true);
-  assert.deepEqual(r.bytes, png);
+  const a = {tipo: "audio", nome: "v.ogg", mime: "audio/ogg", file_id: "a"} as const;
+  await assert.rejects(m.carregar(a), /Claude.*não.*áudio/i);
+  await assert.rejects(m.converter(a, new Uint8Array()), /Claude.*não.*áudio/i);
+  assert.deepEqual(m.disponivel(), {leitura: true, audio: false, geracaoImagem: false});
+  assert.equal(chamadas, 0);
+  assert.equal("gerarImagem" in m, false);
 });

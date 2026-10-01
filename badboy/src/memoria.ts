@@ -269,11 +269,6 @@ export class Memoria {
     return data;
   }
 
-  async registrarUsoMidia(tipo:string,modelo:string,uso:unknown):Promise<void> {
-    const {error}=await this.db.from("badboy_midia_uso").insert({tipo,modelo,uso});
-    if(error)throw Error("Não foi possível registrar uso de mídia.");
-  }
-
   async registrarUso(registros: RegistroUso[]): Promise<void> {
     if (registros.length === 0) return;
     const { error } = await this.db.from("badboy_uso").insert(

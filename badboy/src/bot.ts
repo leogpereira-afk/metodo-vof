@@ -22,7 +22,7 @@ import {
 const AJUDA = [
   "Don Boy às ordens. Me conte o que precisa, como falaria com um velho amigo.",
   "",
-  "Envie PDF, foto, áudio ou arquivo de texto. Peça imagens, documentos e e-mails; e-mails saem com sua confirmação.",
+  "Envie PDF, foto ou arquivo de texto para análise pelo Claude. Peça documentos e e-mails; e-mails saem com sua confirmação. Áudio e geração de imagens não estão disponíveis.",
   "/custo — gasto Claude do mês em tokens e dólares",
   "/lembrar [texto] — salva um fato",
   "/fatos — lista os fatos salvos",
@@ -67,7 +67,7 @@ export function criarBot(
 
   bot.command("custo", async (ctx) => {
     const resumo = await memoria.resumoDoMes(config.fuso);
-    await ctx.reply(formatarResumo(resumo, mesPorExtenso(new Date(), config.fuso)) + "\n\nÁudio e imagens usam uma API complementar; seus custos não estão incluídos neste total do Claude.");
+    await ctx.reply(formatarResumo(resumo, mesPorExtenso(new Date(), config.fuso)));
   });
 
   bot.command("lembrar", async (ctx) => {
@@ -134,8 +134,8 @@ export function criarBot(
     let anexos:AnexoRecebido[];
     try {const a=identificarAnexo(ctx.message);anexos=recebidoUpdate._anexos??(a?[a]:[]);}
     catch(e){return void await ctx.reply((e as Error).message);}
-    if(!ctx.message.text&&!anexos.length)return void await ctx.reply("Envie texto, PDF, foto, áudio, TXT, CSV, JSON ou Markdown. Vídeos e outros formatos ainda não são processados.");
-    const texto=ctx.message.text||ctx.message.caption||(anexos[0]?.tipo==='audio'?'Áudio recebido: transcreva e responda ao pedido falado, se houver.':'Analise o arquivo enviado e apresente o conteúdo e os pontos principais.');
+    if(!ctx.message.text&&!anexos.length)return void await ctx.reply("Envie texto, PDF, foto, TXT, CSV, JSON ou Markdown. Vídeos e outros formatos ainda não são processados.");
+    const texto=ctx.message.text||ctx.message.caption||(anexos[0]?.tipo==='audio'?'Áudio recebido; informe a limitação desta integração Claude.':'Analise o arquivo enviado e apresente o conteúdo e os pontos principais.');
     const chatId = ctx.chat.id;
     const recebido = (ctx.update as unknown as { _mensagem_id?: number })._mensagem_id;
     const minha = Number.isSafeInteger(recebido)

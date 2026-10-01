@@ -70,7 +70,7 @@ function preparar(): Promise<Contexto> {
     const config = lerConfig(ambiente());
     const memoria = new Memoria(config);
     const sistemas = new Sistemas(memoria, config.urlPonte);
-    const midia = new Midia(config, fetch, (tipo,modelo,uso)=>memoria.registrarUsoMidia(tipo,modelo,uso));
+    const midia = new Midia(config);
     const cerebro = new Cerebro(config, memoria, sistemas, undefined, midia);
     const bot = criarBot(config, memoria, cerebro, sistemas);
     await bot.init();
@@ -256,10 +256,10 @@ async function testarMidia(req:Request,ctx:Contexto):Promise<Response>{
   let dados:{pergunta?:string;arquivos?:{tipo:string;nome:string;mime:string;base64:string}[]};
   try{dados=JSON.parse(corpo);}catch{return json({erro:"JSON inválido."},400);}
   if(!Array.isArray(dados.arquivos)||!dados.arquivos.length||dados.arquivos.length>2)return json({erro:"Envie 1 ou 2 amostras."},400);
-  const midia=new Midia(ctx.config,fetch,(tipo,modelo,uso)=>ctx.memoria.registrarUsoMidia(tipo,modelo,uso));
+  const midia=new Midia(ctx.config);
   const blocos=[];
   for(const a of dados.arquivos){
-    if(!['imagem','pdf','texto','audio'].includes(a.tipo)||typeof a.base64!=='string')return json({erro:"Tipo inválido."},400);
+    if(!['imagem','pdf','texto'].includes(a.tipo)||typeof a.base64!=='string')return json({erro:"Tipo inválido."},400);
     blocos.push(...await midia.converter({...a,file_id:'amostra'} as AnexoRecebido,deBase64(a.base64)));
   }
   const r=await ctx.cerebro.responder([{papel:'user',conteudo:String(dados.pergunta||'Leia os arquivos e explique o conteúdo.').slice(0,2000)}],dataPorExtenso(new Date(),ctx.config.fuso),{somenteLeitura:true,blocosEntrada:blocos});
@@ -279,10 +279,10 @@ Deno.serve(async (req) => {
       if (url.searchParams.get("acao") === "testar-midia") return await testarMidia(req,ctx);
       if (url.searchParams.get("acao") === "capacidades") return json({
         claude: !!ctx.config.anthropicApiKey,
+        provedor_ia: "anthropic",
+        modelo: ctx.config.modelo,
         leitura_pdf_imagens_texto: true,
-        audio_e_geracao: new Midia(ctx.config).disponivel(),
-        openai_configurada: !!ambiente().OPENAI_API_KEY?.trim(),
-        gemini_configurada: !!(ambiente().GEMINI_API_KEY?.trim() || ambiente().GOOGLE_AI_API_KEY?.trim()),
+        midia: new Midia(ctx.config).disponivel(),
         email: "previa_e_confirmacao_pela_ponte_existente"
       });
       if (url.searchParams.get("acao") === "configurar") return json(await configurarEDiagnosticar());
