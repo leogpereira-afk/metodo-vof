@@ -159,7 +159,7 @@ export class Memoria {
   }
 
   // Ação irreversível preparada pelo Claude, esperando o botão do dono.
-  async criarPendente(tipo: "email" | "fatos" | "compra", dados: unknown): Promise<number> {
+  async criarPendente(tipo: "email" | "fatos" | "compra" | "central", dados: unknown): Promise<number> {
     const { data, error } = await this.db.from("badboy_pendentes").insert({ tipo, dados }).select("id").single();
     if (error) throw new Error(`Supabase (criar pendente): ${error.message}`);
     return data.id as number;
@@ -167,21 +167,76 @@ export class Memoria {
 
   // Reserva a ação para executar: um UPDATE só, que só acha a linha se ela
   // ainda não foi executada. Dois toques no botão: o segundo volta null.
-  async reservarPendente(id: number): Promise<{ tipo: string; dados: unknown } | null> {
-    const { data, error } = await this.db
-      .from("badboy_pendentes")
-      .update({ executado_em: new Date().toISOString() })
-      .eq("id", id)
-      .is("executado_em", null)
-      .select("tipo, dados")
-      .maybeSingle();
-    if (error) throw new Error(`Supabase (reservar pendente): ${error.message}`);
-    return data ? { tipo: data.tipo as string, dados: data.dados } : null;
+  async reservarPendente(id: number, tipo: string): Promise<{ tipo: string; dados: unknown } | null> {
+    const { data, error } = await this.db.rpc("badboy_reservar_acao", { p_id: id, p_tipo: tipo }).maybeSingle();
+    if (error) throw new Error(`Supabase (reservar): ${error.message}`);
+    return data as { tipo: string; dados: unknown } | null;
   }
 
-  async concluirPendente(id: number, resultado: string): Promise<void> {
-    const { error } = await this.db.from("badboy_pendentes").update({ resultado: resultado.slice(0, 1000) }).eq("id", id);
-    if (error) throw new Error(`Supabase (concluir pendente): ${error.message}`);
+  async concluirPendente(
+    id: number,
+    resultado: string,
+    estado: "concluido" | "falhou" | "incerto" = "concluido",
+  ): Promise<void> {
+    const { error } = await this.db.from("badboy_pendentes").update({
+      estado,
+      resultado: resultado.slice(0, 1000),
+      executado_em: estado === "concluido" ? new Date().toISOString() : null,
+    }).eq("id", id);
+    if (error) throw new Error(error.message);
+  }
+
+  async buscarHistorico(chatId: number, termo: string) {
+    if (termo.trim().length < 3 || termo.length > 100) throw new Error("Use um termo de 3 a 100 caracteres.");
+    const { data, error } = await this.db.from("badboy_mensagens").select("id,papel,conteudo,criada_em").eq(
+      "chat_id",
+      chatId,
+    ).ilike("conteudo", "%" + termo.replace(/[\\%_]/g, "\\$&") + "%").order("id", { ascending: false }).limit(20);
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  }
+
+  async listarTarefas(estado = "todas") {
+    let q = this.db.from("badboy_tarefas").select("*").order("atualizado_em", { ascending: false }).limit(100);
+    if (estado !== "todas") q = q.eq("estado", estado);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  }
+
+  async registrarTarefa(entrada: Record<string, unknown>) {
+    const { id, ...dados } = entrada;
+    const q = Number(id) > 0
+      ? this.db.from("badboy_tarefas").update({ ...dados, atualizado_em: new Date().toISOString() }).eq(
+        "id",
+        Number(id),
+      )
+      : this.db.from("badboy_tarefas").insert(dados);
+    const { data, error } = await q.select("*").single();
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  async enfileirar(chave: string, chatId: number, payload: unknown) {
+    const { error } = await this.db.rpc("badboy_enfileirar", { p_chave: chave, p_chat_id: chatId, p_payload: payload });
+    if (error) throw new Error(error.message);
+  }
+  async reservarTrabalho(): Promise<{ id: number; chat_id: number; payload: Record<string, unknown> } | null> {
+    const { data, error } = await this.db.rpc("badboy_reservar_trabalho").maybeSingle();
+    if (error) throw new Error(error.message);
+    return data as never;
+  }
+  async concluirTrabalho(id: number, erro?: string) {
+    const { error } = await this.db.from("badboy_fila").update({
+      estado: erro ? "falhou" : "concluido",
+      erro: erro?.slice(0, 500) ?? null,
+      finalizado_em: new Date().toISOString(),
+    }).eq("id", id);
+    if (error) throw new Error(error.message);
+  }
+  async registrarTurno(id: string, dados: Record<string, unknown>) {
+    const { error } = await this.db.from("badboy_turnos").upsert({ id, ...dados });
+    if (error) throw new Error(error.message);
   }
 
   async registrarUso(registros: RegistroUso[]): Promise<void> {

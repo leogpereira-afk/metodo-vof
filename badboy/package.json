@@ -4,8 +4,8 @@
   "description": "BadBoy: agente pessoal no Telegram (Claude + Supabase Edge Function).",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json && deno check src/edge.ts",
-    "test": "tsx --test tests/*.test.ts"
+    "typecheck": "tsc -p tsconfig.json && deno check src/edge.ts ponte-segundo/index.ts",
+    "test": "node --import tsx --test tests/*.test.ts"
   },
   "engines": {
     "node": ">=22"
@@ -19,6 +19,7 @@
     "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@types/node": "^22.20.4",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"

@@ -25,8 +25,7 @@ function emLinha(texto: string): string {
 }
 
 const SEPARADOR = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
-const celulas = (linha: string) =>
-  linha.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+const celulas = (linha: string) => linha.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
 
 function tabela(linhas: string[]): string {
   const cabecalho = celulas(linhas[0]!);
@@ -95,4 +94,54 @@ export function semMarcacao(texto: string): string {
     .replace(/`([^`\n]+)`/g, "$1")
     .replace(/^\s*#{1,6}\s+/gm, "")
     .replace(/^(\s*)[-*+]\s+/gm, "$1• ");
+}
+
+// Divide depois de renderizar; fecha e reabre as tags em cada parte. Conta
+// o texto visível em UTF-16 (conservador para o Telegram), sem cortar entidades.
+export function partesTelegram(markdown: string): { html: string; texto: string }[] {
+  const html = paraHtmlTelegram(markdown);
+  const partes: { html: string; texto: string }[] = [];
+  const abertas: { nome: string; tag: string }[] = [];
+  let atual = "", texto = "";
+  const fechar = () => {
+    if (!texto) return;
+    partes.push({ html: atual + [...abertas].reverse().map((t) => `</${t.nome}>`).join(""), texto });
+    atual = abertas.map((t) => t.tag).join("");
+    texto = "";
+  };
+  const tokens = html.match(/<[^>]+>|&(?:amp|lt|gt|quot|#\d+);|[^<&]+/g) ?? [];
+  for (const token of tokens) {
+    if (token.startsWith("<")) {
+      atual += token;
+      if (token.startsWith("</")) abertas.pop();
+      else abertas.push({ nome: /^<([a-z]+)/.exec(token)![1]!, tag: token });
+      continue;
+    }
+    const decodificado = token === "&amp;"
+      ? "&"
+      : token === "&lt;"
+      ? "<"
+      : token === "&gt;"
+      ? ">"
+      : token === "&quot;"
+      ? '"'
+      : /^&#\d+;$/.test(token)
+      ? String.fromCodePoint(Number(token.slice(2, -1)))
+      : token;
+    const segmentos = token.startsWith("&")
+      ? [{ segment: decodificado }]
+      : new Intl.Segmenter("pt-BR", { granularity: "grapheme" }).segment(decodificado);
+    for (const { segment } of segmentos) {
+      // Um grafema malicioso pode ter milhares de combinadores: subdivide
+      // apenas esse caso, nunca um par substituto Unicode.
+      const unidades = segment.length > 4096 ? [...segment] : [segment];
+      for (const unidade of unidades) {
+        if (texto.length + unidade.length > 4096) fechar();
+        atual += esc(unidade);
+        texto += unidade;
+      }
+    }
+  }
+  fechar();
+  return partes;
 }

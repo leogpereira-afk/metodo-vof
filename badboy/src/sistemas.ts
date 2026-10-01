@@ -5,6 +5,7 @@
 // lá, que confere um token e roda a mesma consulta somente leitura. O token
 // fica no Vault do principal (badboy_segredo), nunca no código.
 
+import type { RegistroCentral } from "./central.ts";
 import type { Email } from "./email.ts";
 import type { Memoria } from "./memoria.ts";
 
@@ -78,12 +79,12 @@ export class Sistemas {
     return await this.ponte({ acao: "agenda", de, ate });
   }
 
-  async buscarEmails(consulta: string, quantos: number): Promise<unknown> {
-    return await this.ponte({ acao: "gmail_buscar", consulta, quantos });
+  async buscarEmails(consulta: string, quantos: number, pagina = ""): Promise<unknown> {
+    return await this.ponte({ acao: "gmail_buscar", consulta, quantos, ...(pagina ? { pagina } : {}) });
   }
 
-  async lerEmail(id: string): Promise<unknown> {
-    return await this.ponte({ acao: "gmail_ler", id });
+  async lerEmail(id: string, inicio = 0): Promise<unknown> {
+    return await this.ponte({ acao: "gmail_ler", id, ...(inicio ? { inicio } : {}) });
   }
 
   // Lembrete do dono para ele mesmo, num calendário só do Don Boy.
@@ -108,12 +109,17 @@ export class Sistemas {
     return await this.ponte({ acao: "gmail_enviar", email });
   }
 
+  async registrarCentral(registro: RegistroCentral): Promise<{ gravado: boolean; id: string; item: unknown }> {
+    return await this.ponte({ acao: "central_registrar", registro }) as { gravado: boolean; id: string; item: unknown };
+  }
+
   private async ponte(corpo: Record<string, unknown>): Promise<unknown> {
     const token = await this.tokenDaPonte();
     const resposta = await this.buscar(this.urlPonte, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-donboy-token": token },
       body: JSON.stringify(corpo),
+      signal: AbortSignal.timeout(90000),
     });
     const dados = (await resposta.json().catch(() => ({}))) as { dados?: unknown; erro?: string };
     if (resposta.status === 401) {

@@ -21,8 +21,9 @@
 // executa em transação somente leitura (migração migrations-segundo/0001).
 
 import { createClient } from "npm:@supabase/supabase-js@2.117.2";
+import { validarRegistroCentral } from "../src/central.ts";
 import { agenda, criarLembrete, gmailBuscar, gmailEnviar, gmailLer } from "./google.ts";
-import { consultarMubisys, solicitarCompra, type SolicitacaoCompra } from "./mubisys.ts";
+import { consultarMubisys, type SolicitacaoCompra, solicitarCompra } from "./mubisys.ts";
 
 function chaveSecreta(): string {
   try {
@@ -63,13 +64,52 @@ Deno.serve(async (req) => {
   if (!acesso) return json({ erro: "não autorizado" }, 401);
 
   let corpo: {
-    acao?: unknown; sql?: unknown; horas?: unknown; de?: unknown; ate?: unknown; consulta?: unknown; quantos?: unknown;
-    id?: unknown; email?: unknown; lembrete?: unknown; tipo?: unknown; chave?: unknown; solicitacao?: unknown;
+    acao?: unknown;
+    sql?: unknown;
+    horas?: unknown;
+    de?: unknown;
+    ate?: unknown;
+    consulta?: unknown;
+    quantos?: unknown;
+    pagina?: unknown;
+    inicio?: unknown;
+    id?: unknown;
+    email?: unknown;
+    lembrete?: unknown;
+    tipo?: unknown;
+    chave?: unknown;
+    solicitacao?: unknown;
+    registro?: unknown;
   };
   try {
     corpo = await req.json();
   } catch {
     return json({ erro: "JSON inválido" }, 400);
+  }
+
+  if (corpo.acao === "central_registrar") {
+    try {
+      const r = corpo.registro as {
+        tipo: string;
+        id: string;
+        dados: Record<string, unknown>;
+        esperado: unknown;
+        chave: string;
+      };
+      const { id: hotelId, ...campos } = r.dados;
+      validarRegistroCentral(r.tipo, r.id, campos);
+      if (r.tipo === "hotel" && typeof hotelId !== "string") return json({ erro: "ID do hotel ausente" }, 400);
+      const { data, error } = await db.rpc("badboy_central_aplicar", {
+        p_chave: r.chave,
+        p_tipo: r.tipo,
+        p_id: r.id,
+        p_esperado: r.esperado,
+        p_dados: r.dados,
+      });
+      return error ? json({ erro: error.message }, 409) : json({ dados: data });
+    } catch (e) {
+      return json({ erro: (e as Error).message }, 400);
+    }
   }
 
   if (corpo.acao === "consultar") {
@@ -86,7 +126,9 @@ Deno.serve(async (req) => {
 
   if (corpo.acao === "mubisys" || corpo.acao === "compras_solicitar") {
     try {
-      if (corpo.acao === "mubisys") return json({ dados: await consultarMubisys(String(corpo.tipo ?? ""), String(corpo.chave ?? "")) });
+      if (corpo.acao === "mubisys") {
+        return json({ dados: await consultarMubisys(String(corpo.tipo ?? ""), String(corpo.chave ?? "")) });
+      }
       return json({ dados: await solicitarCompra((corpo.solicitacao ?? {}) as SolicitacaoCompra) });
     } catch (e) {
       return json({ erro: (e as Error).message }, 502);
@@ -97,12 +139,16 @@ Deno.serve(async (req) => {
   if (acoesGoogle.includes(String(corpo.acao))) {
     try {
       if (corpo.acao === "agenda_lembrete") return json({ dados: await criarLembrete(db, corpo.lembrete) });
-      if (corpo.acao === "agenda") return json({ dados: await agenda(db, String(corpo.de ?? ""), String(corpo.ate ?? "")) });
+      if (corpo.acao === "agenda") {
+        return json({ dados: await agenda(db, String(corpo.de ?? ""), String(corpo.ate ?? "")) });
+      }
       if (corpo.acao === "gmail_enviar") return json({ dados: await gmailEnviar(db, corpo.email) });
       if (corpo.acao === "gmail_buscar") {
-        return json({ dados: await gmailBuscar(db, String(corpo.consulta ?? ""), Number(corpo.quantos)) });
+        return json({
+          dados: await gmailBuscar(db, String(corpo.consulta ?? ""), Number(corpo.quantos), String(corpo.pagina ?? "")),
+        });
       }
-      return json({ dados: await gmailLer(db, String(corpo.id ?? "")) });
+      return json({ dados: await gmailLer(db, String(corpo.id ?? ""), Number(corpo.inicio ?? 0)) });
     } catch (e) {
       return json({ erro: (e as Error).message }, 502);
     }

@@ -5,21 +5,23 @@
 // resposta do Claude pode levar mais que o prazo do webhook, e resposta
 // atrasada faz o Telegram reenviar a mesma mensagem.
 //
-// GET  /badboy-telegram  → registra o webhook e o menu no Telegram (idempotente)
-//                          e devolve um diagnóstico, sem expor nenhuma chave
+// GET  /badboy-telegram  → saúde mínima, sem configuração nem credenciais
+// POST ?acao=configurar → configuração e diagnóstico autenticados
 // GET  ?pergunta=...      → pergunta de teste, fora do Telegram (exige o token
 //                          da ponte no header x-donboy-token)
 // POST ?rotina=briefing   → briefing da manhã, disparado pelo pg_cron (mesmo token)
 // POST /badboy-telegram  → updates do Telegram (com token secreto)
 
+import { processarFila } from "./fila.ts";
+import type { Update } from "grammy/types";
 import Anthropic from "@anthropic-ai/sdk";
 import type { Bot } from "grammy";
 import { COMANDOS, criarBot, turno } from "./bot.ts";
 import { Cerebro } from "./claude.ts";
-import { lerConfig, type Ambiente, type Config } from "./config.ts";
+import { type Ambiente, type Config, lerConfig } from "./config.ts";
 import { Memoria } from "./memoria.ts";
 import { SEGREDO_PONTE, Sistemas } from "./sistemas.ts";
-import { dataPorExtenso, inicioDoDia } from "./telegram-util.ts";
+import { dataPorExtenso } from "./telegram-util.ts";
 
 declare const EdgeRuntime: { waitUntil(promessa: Promise<unknown>): void };
 
@@ -197,24 +199,33 @@ export const PEDIDO_BRIEFING = "bom dia (briefing automático das 6h30: ainda n�
 
 // Briefing da manhã, uma vez por dia. Responde na hora e trabalha em segundo
 // plano: o briefing consulta agenda, sistemas, e-mails e clima e leva ~1 min.
+async function executarFila(ctx: Contexto): Promise<void> {
+  await processarFila(ctx.memoria, async (trabalho) => {
+    if (trabalho.payload.tipo === "briefing") {
+      await ctx.memoria.salvarMensagem(ctx.config.donoId, "user", String(trabalho.payload.pedido));
+      await turno(ctx.bot.api, ctx.config.donoId, ctx.config, ctx.memoria, ctx.cerebro);
+    } else await ctx.bot.handleUpdate(trabalho.payload as unknown as Update);
+  }, 1);
+}
 async function rotinaBriefing(req: Request): Promise<Response> {
   const ctx = await preparar();
   if (!(await autorizado(req, ctx))) return new Response("não autorizado", { status: 401 });
-  const chatId = ctx.config.donoId;
-  if (await ctx.memoria.jaPediu(chatId, PEDIDO_BRIEFING, inicioDoDia(new Date(), ctx.config.fuso))) {
-    return json({ ok: true, feito: "o briefing de hoje já foi enviado" });
-  }
-  await ctx.memoria.salvarMensagem(chatId, "user", PEDIDO_BRIEFING);
-  EdgeRuntime.waitUntil(
-    turno(ctx.bot.api, chatId, ctx.config, ctx.memoria, ctx.cerebro).catch(async (e) => {
-      console.error("Falha no briefing:", e);
-      await ctx.bot.api.sendMessage(chatId, "Não consegui montar o briefing de hoje. Me mande \"bom dia\" que eu refaço.").catch(() => {});
-    }),
-  );
-  return json({ ok: true, iniciado: true }, 202);
+  const dia = new Intl.DateTimeFormat("en-CA", {
+    timeZone: ctx.config.fuso,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  await ctx.memoria.enfileirar("briefing:" + dia, ctx.config.donoId, {
+    tipo: "briefing",
+    pedido:
+      `Briefing agendado referente a ${dia}, previsto para 06h30 de Brasília. Considere a hora atual; não atribua falha de agendamento sem logs. Consulte agenda, pendências e dados atuais. Não crie lembretes nem envie mensagens a terceiros neste briefing.`,
+  });
+  EdgeRuntime.waitUntil(executarFila(ctx));
+  return json({ ok: true, estado: "enfileirado", data: dia }, 202);
 }
 
-// Pergunta de teste: roda o cérebro inteiro (sistemas, agenda, internet) numa
+// Pergunta de teste: ferramentas de leitura apenas, numa
 // conversa avulsa, sem Telegram e sem histórico, e devolve a resposta. Serve
 // para conferir a qualidade depois de publicar. Só com o token da ponte (o
 // mesmo do Vault): ninguém de fora gasta a API nem lê dados por aqui.
@@ -225,6 +236,7 @@ async function perguntaDeTeste(req: Request, pergunta: string): Promise<Response
   const r = await ctx.cerebro.responder(
     [{ papel: "user", conteudo: pergunta.slice(0, 2000), em: new Date().toISOString() }],
     dataPorExtenso(new Date(), ctx.config.fuso),
+    { somenteLeitura: true },
   );
   return json({
     texto: r.texto,
@@ -242,19 +254,32 @@ Deno.serve(async (req) => {
     const pergunta = req.method === "GET" ? url.searchParams.get("pergunta") : null;
     if (pergunta) return await perguntaDeTeste(req, pergunta);
     if (req.method === "POST" && url.searchParams.get("rotina") === "briefing") return await rotinaBriefing(req);
-    if (req.method === "GET") return json(await configurarEDiagnosticar());
+    if (req.method === "GET") return json({ servico: "Don Boy", versao: "melhorias-1", ok: true });
+    if (req.method === "POST" && ["configurar", "processar"].includes(url.searchParams.get("acao") ?? "")) {
+      const ctx = await preparar();
+      if (!(await autorizado(req, ctx))) return new Response("não autorizado", { status: 401 });
+      if (url.searchParams.get("acao") === "configurar") return json(await configurarEDiagnosticar());
+      EdgeRuntime.waitUntil(executarFila(ctx));
+      return json({ ok: true }, 202);
+    }
     if (req.method !== "POST") return new Response("método não permitido", { status: 405 });
 
-    const { bot, segredo } = await preparar();
+    const ctx = await preparar();
+    const { segredo } = ctx;
     // Só o Telegram conhece o token secreto do webhook.
     if (req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== segredo) {
       return new Response("não autorizado", { status: 401 });
     }
 
-    const update = await req.json();
-    EdgeRuntime.waitUntil(
-      bot.handleUpdate(update).catch((e) => console.error("Falha no update", update?.update_id, e)),
-    );
+    const update = await req.json() as Update;
+    const mensagem = "message" in update ? update.message : undefined;
+    const callback = "callback_query" in update ? update.callback_query : undefined;
+    const de = mensagem?.from ?? callback?.from;
+    const chat = mensagem?.chat ?? callback?.message?.chat;
+    if (de?.id !== ctx.config.donoId || chat?.type !== "private") return new Response("ok");
+    if (!Number.isSafeInteger(update.update_id)) return new Response("update inválido", { status: 400 });
+    await ctx.memoria.enfileirar("telegram:" + update.update_id, chat.id, update);
+    EdgeRuntime.waitUntil(executarFila(ctx));
     return new Response("ok");
   } catch (e) {
     console.error("Erro no Don Boy:", e);

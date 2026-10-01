@@ -1,0 +1,29 @@
+name: Verificar DON BOY
+on:
+  pull_request:
+    paths: ['badboy/**', '.github/workflows/verificar-donboy.yml']
+  push:
+    branches: [main]
+    paths: ['badboy/**', '.github/workflows/verificar-donboy.yml']
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: badboy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: badboy/package-lock.json
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run typecheck

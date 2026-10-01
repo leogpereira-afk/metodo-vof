@@ -16,6 +16,8 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.117.2";
 import { montarMime, paraBase64Url, validarEmail } from "../src/email.ts";
 
+import { lerPaginas } from "../src/paginacao.ts";
+
 const OAUTH_TOKEN = "https://oauth2.googleapis.com/token";
 const CALENDAR = "https://www.googleapis.com/calendar/v3";
 const GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -51,7 +53,12 @@ export async function tokenGoogle(db: SupabaseClient): Promise<string> {
   const resp = await fetch(OAUTH_TOKEN, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: id, client_secret: secret, grant_type: "refresh_token", refresh_token: chave }),
+    body: new URLSearchParams({
+      client_id: id,
+      client_secret: secret,
+      grant_type: "refresh_token",
+      refresh_token: chave,
+    }),
     signal: AbortSignal.timeout(20_000),
   });
   const dados = (await resp.json().catch(() => ({}))) as Record<string, unknown>;
@@ -65,7 +72,11 @@ export async function tokenGoogle(db: SupabaseClient): Promise<string> {
   if (!token) throw new Error("o Google não devolveu o crachá");
   const vence = new Date(Date.now() + (Number(dados.expires_in) || 3600) * 1000).toISOString();
   await db.from("leo_config").upsert(
-    { chave: "google_token", valor: { token, exp: vence, escopo: texto(dados.scope) || texto(refresh?.escopo) }, atualizado_em: new Date().toISOString() },
+    {
+      chave: "google_token",
+      valor: { token, exp: vence, escopo: texto(dados.scope) || texto(refresh?.escopo) },
+      atualizado_em: new Date().toISOString(),
+    },
     { onConflict: "chave" },
   );
   return token;
@@ -74,7 +85,10 @@ export async function tokenGoogle(db: SupabaseClient): Promise<string> {
 async function google(token: string, url: string, corpo?: unknown): Promise<Record<string, unknown>> {
   const resp = await fetch(url, {
     method: corpo === undefined ? "GET" : "POST",
-    headers: { Authorization: `Bearer ${token}`, ...(corpo === undefined ? {} : { "Content-Type": "application/json" }) },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(corpo === undefined ? {} : { "Content-Type": "application/json" }),
+    },
     body: corpo === undefined ? undefined : JSON.stringify(corpo),
     signal: AbortSignal.timeout(25_000),
   });
@@ -98,24 +112,40 @@ export interface Evento {
 
 // Eventos entre duas datas (AAAA-MM-DD, inclusive), de todas as agendas
 // marcadas como visíveis na conta, em ordem de início.
-export async function agenda(db: SupabaseClient, de: string, ate: string): Promise<Evento[]> {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(de) || !/^\d{4}-\d{2}-\d{2}$/.test(ate)) throw new Error("datas no formato AAAA-MM-DD");
+export async function agenda(
+  db: SupabaseClient,
+  de: string,
+  ate: string,
+): Promise<{ eventos: Evento[]; parcial: boolean; agendas: number }> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(de) || !/^\d{4}-\d{2}-\d{2}$/.test(ate)) {
+    throw new Error("datas no formato AAAA-MM-DD");
+  }
   const token = await tokenGoogle(db);
-  const lista = await google(token, `${CALENDAR}/users/me/calendarList?maxResults=50`);
+  const lista = await lerPaginas((u) => google(token, u), `${CALENDAR}/users/me/calendarList?maxResults=250`);
+  let parcial = lista.parcial;
   const agendas = ((lista.items as Record<string, unknown>[]) ?? [])
-    .filter((c) => c.primary === true || c.selected === true)
-    .slice(0, 15);
+    .filter((c) => c.primary === true || c.selected === true);
   const inicio = new Date(`${de}T00:00:00-03:00`).toISOString();
   const fim = new Date(new Date(`${ate}T00:00:00-03:00`).getTime() + 86_400_000).toISOString();
   const eventos: Evento[] = [];
   await Promise.all(
     agendas.map(async (c) => {
       const params = new URLSearchParams({
-        timeMin: inicio, timeMax: fim, singleEvents: "true", orderBy: "startTime", maxResults: "100",
+        timeMin: inicio,
+        timeMax: fim,
+        singleEvents: "true",
+        orderBy: "startTime",
+        maxResults: "100",
         timeZone: "America/Sao_Paulo",
       });
-      const dados = await google(token, `${CALENDAR}/calendars/${encodeURIComponent(texto(c.id))}/events?${params}`);
-      for (const e of (dados.items as Record<string, Record<string, string>>[]) ?? []) {
+      const dados = await lerPaginas(
+        (u) => google(token, u),
+        `${CALENDAR}/calendars/${encodeURIComponent(texto(c.id))}/events?${params}`,
+        "items",
+        10,
+      );
+      parcial ||= dados.parcial;
+      for (const e of (dados.items as unknown as Record<string, Record<string, string>>[]) ?? []) {
         if ((e.status as unknown) === "cancelled") continue;
         eventos.push({
           agenda: texto(c.summaryOverride ?? c.summary),
@@ -129,7 +159,7 @@ export async function agenda(db: SupabaseClient, de: string, ate: string): Promi
       }
     }),
   );
-  return eventos.sort((a, b) => a.inicio.localeCompare(b.inicio));
+  return { eventos: eventos.sort((a, b) => a.inicio.localeCompare(b.inicio)), parcial, agendas: agendas.length };
 }
 
 const cabecalho = (msg: Record<string, unknown>, nome: string): string => {
@@ -139,13 +169,20 @@ const cabecalho = (msg: Record<string, unknown>, nome: string): string => {
 
 // Busca com a sintaxe do Gmail (from:, subject:, newer_than:7d, is:unread,
 // has:attachment…). Devolve só o cabeçalho e o trecho de cada e-mail.
-export async function gmailBuscar(db: SupabaseClient, consulta: string, quantos: number) {
+export async function gmailBuscar(db: SupabaseClient, consulta: string, quantos: number, pagina = "") {
   const token = await tokenGoogle(db);
   const max = Math.min(Math.max(Math.trunc(quantos) || 10, 1), 20);
-  const lista = await google(token, `${GMAIL}/messages?${new URLSearchParams({ q: consulta, maxResults: String(max) })}`);
+  const lista = await google(
+    token,
+    `${GMAIL}/messages?${new URLSearchParams({
+      q: consulta,
+      maxResults: String(max),
+      ...(pagina ? { pageToken: pagina } : {}),
+    })}`,
+  );
   const ids = ((lista.messages as { id: string }[]) ?? []).map((m) => m.id);
   const params = "format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date";
-  return await Promise.all(
+  const mensagens = await Promise.all(
     ids.map(async (id) => {
       const msg = await google(token, `${GMAIL}/messages/${id}?${params}`);
       const rotulos = (msg.labelIds as string[]) ?? [];
@@ -160,6 +197,7 @@ export async function gmailBuscar(db: SupabaseClient, consulta: string, quantos:
       };
     }),
   );
+  return { mensagens, parcial: !!lista.nextPageToken, proximaPagina: texto(lista.nextPageToken) };
 }
 
 function decodificar(base64url: string): string {
@@ -183,7 +221,8 @@ function semHtml(html: string): string {
 
 // Um e-mail inteiro: cabeçalho, corpo em texto (o text/plain; na falta, o HTML
 // sem as tags) e o nome dos anexos. Corpo cortado em LIMITE_CORPO caracteres.
-export async function gmailLer(db: SupabaseClient, id: string) {
+export async function gmailLer(db: SupabaseClient, id: string, inicio = 0) {
+  if (!Number.isSafeInteger(inicio) || inicio < 0) throw new Error("Posição inválida.");
   if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error("id de e-mail inválido");
   const token = await tokenGoogle(db);
   const msg = await google(token, `${GMAIL}/messages/${id}?format=full`);
@@ -211,7 +250,9 @@ export async function gmailLer(db: SupabaseClient, id: string) {
     cc: cabecalho(msg, "Cc"),
     assunto: cabecalho(msg, "Subject"),
     data: cabecalho(msg, "Date"),
-    corpo: corpo.length > LIMITE_CORPO ? `${corpo.slice(0, LIMITE_CORPO)}\n[corpo cortado]` : corpo,
+    corpo: corpo.slice(inicio, inicio + LIMITE_CORPO),
+    proximoInicio: corpo.length > inicio + LIMITE_CORPO ? inicio + LIMITE_CORPO : null,
+    totalCaracteres: corpo.length,
     anexos,
   };
 }
@@ -265,7 +306,9 @@ const FUSO = "America/Sao_Paulo";
 // primeira vez, cria.
 async function calendarioDeLembretes(token: string): Promise<string> {
   const lista = await google(token, `${CALENDAR}/users/me/calendarList?maxResults=250&minAccessRole=owner`);
-  const achado = ((lista.items as Record<string, unknown>[]) ?? []).find((c) => texto(c.summary) === CALENDARIO_LEMBRETES);
+  const achado = ((lista.items as Record<string, unknown>[]) ?? []).find((c) =>
+    texto(c.summary) === CALENDARIO_LEMBRETES
+  );
   if (achado) return texto(achado.id);
   const novo = await google(token, `${CALENDAR}/calendars`, { summary: CALENDARIO_LEMBRETES, timeZone: FUSO });
   return texto(novo.id);
@@ -288,12 +331,24 @@ export async function criarLembrete(db: SupabaseClient, entrada: unknown) {
 
   const token = await tokenGoogle(db);
   const calendario = await calendarioDeLembretes(token);
-  const evento = await google(token, `${CALENDAR}/calendars/${encodeURIComponent(calendario)}/events?sendUpdates=none`, {
-    summary: titulo,
-    description: nota,
-    start: { dateTime: new Date(inicio).toISOString(), timeZone: FUSO },
-    end: { dateTime: new Date(inicio + duracao * 60_000).toISOString(), timeZone: FUSO },
-    reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 0 }, { method: "popup", minutes: 30 }] },
-  });
-  return { id: texto(evento.id), titulo, data, hora, duracao_min: duracao, calendario: CALENDARIO_LEMBRETES, link: texto(evento.htmlLink) };
+  const evento = await google(
+    token,
+    `${CALENDAR}/calendars/${encodeURIComponent(calendario)}/events?sendUpdates=none`,
+    {
+      summary: titulo,
+      description: nota,
+      start: { dateTime: new Date(inicio).toISOString(), timeZone: FUSO },
+      end: { dateTime: new Date(inicio + duracao * 60_000).toISOString(), timeZone: FUSO },
+      reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 0 }, { method: "popup", minutes: 30 }] },
+    },
+  );
+  return {
+    id: texto(evento.id),
+    titulo,
+    data,
+    hora,
+    duracao_min: duracao,
+    calendario: CALENDARIO_LEMBRETES,
+    link: texto(evento.htmlLink),
+  };
 }

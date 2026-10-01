@@ -6,8 +6,8 @@
 // esquerda, valor em destaque), bom para dados bancários, contatos e resumos.
 
 import fontkit from "@pdf-lib/fontkit";
-import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
-import { PDFDocument, StandardFonts, rgb, type Color, type PDFFont, type PDFPage } from "pdf-lib";
+import { Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from "docx";
+import { type Color, PDFDocument, type PDFFont, type PDFPage, rgb, StandardFonts } from "pdf-lib";
 import { FONTE_EMOJI_BASE64 } from "./fontes/emoji.ts";
 
 export type Formato = "docx" | "pdf";
@@ -22,7 +22,8 @@ export type Bloco =
   | { tipo: "titulo" | "subtitulo" | "secao"; texto: string }
   | { tipo: "item"; texto: string }
   | { tipo: "nota"; texto: string }
-  | { tipo: "paragrafo"; texto: string };
+  | { tipo: "paragrafo"; texto: string }
+  | { tipo: "tabela"; texto: string; cabecalho: string[]; linhas: string[][] };
 
 export function lerBlocos(conteudo: string): Bloco[] {
   const blocos: Bloco[] = [];
@@ -32,8 +33,33 @@ export function lerBlocos(conteudo: string): Bloco[] {
     paragrafo = [];
   };
 
-  for (const bruta of conteudo.replace(/\r\n?/g, "\n").split("\n")) {
-    const linha = bruta.trim();
+  const todas = conteudo.replace(/\r\n?/g, "\n").split("\n");
+  const celulas = (l: string) =>
+    l.trim().replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
+  for (let i = 0; i < todas.length; i++) {
+    const linha = todas[i]!.trim();
+    const separador = todas[i + 1]?.trim() ?? "";
+    if (linha.startsWith("|") && separador.startsWith("|") && celulas(separador).every((c) => /^:?-{3,}:?$/.test(c))) {
+      fecharParagrafo();
+      const cabecalho = celulas(linha);
+      const linhas: string[][] = [];
+      i += 2;
+      while (i < todas.length && todas[i]!.trim().startsWith("|")) {
+        const valores = celulas(todas[i]!);
+        // Preserve extra cells instead of silently discarding content.
+        while (cabecalho.length < valores.length) cabecalho.push("");
+        linhas.push(valores);
+        i++;
+      }
+      i--;
+      blocos.push({
+        tipo: "tabela",
+        texto: [cabecalho, ...linhas].map((l) => l.join(" | ")).join("\n"),
+        cabecalho,
+        linhas,
+      });
+      continue;
+    }
     const cabecalho = /^(#{1,3})\s+(.*)$/.exec(linha);
     const item = /^(?:[-*•])\s+(.*)$/.exec(linha);
     const nota = /^>\s?(.*)$/.exec(linha);
@@ -62,7 +88,12 @@ export function trechos(texto: string): { texto: string; negrito: boolean }[] {
   return texto
     .split(/(\*\*[^*]+\*\*)/)
     .filter((t) => t.length > 0)
-    .map((t) => (t.startsWith("**") && t.endsWith("**") ? { texto: t.slice(2, -2), negrito: true } : { texto: t, negrito: false }));
+    .map((
+      t,
+    ) => (t.startsWith("**") && t.endsWith("**")
+      ? { texto: t.slice(2, -2), negrito: true }
+      : { texto: t, negrito: false })
+    );
 }
 
 // "- **Banco:** 208, BTG Pactual" ou "- Banco: 208" → rótulo e valor.
@@ -88,7 +119,12 @@ export interface OpcoesDocumento {
   data?: Date;
 }
 
-export async function gerarDocumento(titulo: string, formato: Formato, conteudo: string, opcoes: OpcoesDocumento = {}): Promise<Anexo> {
+export async function gerarDocumento(
+  titulo: string,
+  formato: Formato,
+  conteudo: string,
+  opcoes: OpcoesDocumento = {},
+): Promise<Anexo> {
   const blocos = lerBlocos(conteudo);
   const bytes = formato === "docx" ? await gerarDocx(titulo, blocos) : await gerarPdf(titulo, blocos, opcoes);
   return { nome: nomeDoArquivo(titulo, formato), titulo, bytes };
@@ -100,9 +136,30 @@ async function gerarDocx(titulo: string, blocos: Bloco[]): Promise<Uint8Array> {
   const niveis = { titulo: HeadingLevel.HEADING_1, subtitulo: HeadingLevel.HEADING_2, secao: HeadingLevel.HEADING_3 };
 
   const paragrafos = blocos.map((b) => {
+    if (b.tipo === "tabela") {
+      return new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [b.cabecalho, ...b.linhas].map((linha, indice) =>
+          new TableRow({
+            tableHeader: indice === 0,
+            children: b.cabecalho.map((_, coluna) =>
+              new TableCell({
+                children: [
+                  new Paragraph({
+                    children: corridas(indice === 0 ? `**${linha[coluna] ?? ""}**` : linha[coluna] ?? ""),
+                  }),
+                ],
+              })
+            ),
+          })
+        ),
+      });
+    }
     if (b.tipo === "item") return new Paragraph({ children: corridas(b.texto), bullet: { level: 0 } });
     if (b.tipo === "paragrafo") return new Paragraph({ children: corridas(b.texto), spacing: { after: 160 } });
-    if (b.tipo === "nota") return new Paragraph({ children: corridas(b.texto, true), indent: { left: 360 }, spacing: { after: 160 } });
+    if (b.tipo === "nota") {
+      return new Paragraph({ children: corridas(b.texto, true), indent: { left: 360 }, spacing: { after: 160 } });
+    }
     return new Paragraph({ children: corridas(b.texto), heading: niveis[b.tipo] });
   });
 
@@ -143,7 +200,8 @@ const WIN_ANSI = /[^ -~ -ÿ–—‘’“”•…€]/g;
 const limparParaPdf = (texto: string) =>
   texto.replace(/\t/g, "    ").replace(/→/g, "->").replace(/[─━]/g, "-").replace(WIN_ANSI, "");
 
-const EMOJI = "\\p{Regional_Indicator}{2}|[0-9#*]\\uFE0F?\\u20E3|\\p{Extended_Pictographic}(?:\\uFE0F|\\u200D\\p{Extended_Pictographic}|\\p{Emoji_Modifier})*";
+const EMOJI =
+  "\\p{Regional_Indicator}{2}|[0-9#*]\\uFE0F?\\u20E3|\\p{Extended_Pictographic}(?:\\uFE0F|\\u200D\\p{Extended_Pictographic}|\\p{Emoji_Modifier})*";
 const SEPARA_EMOJI = new RegExp(`(${EMOJI})`, "u");
 const E_EMOJI = new RegExp(`^(?:${EMOJI})$`, "u");
 
@@ -217,8 +275,24 @@ function linhas(texto: string, base: Estilo, forte: Estilo, larguraMax: number, 
       atual = [];
       larguraAtual = 0;
     }
-    atual.push(...palavra);
-    larguraAtual += w;
+    if (w > larguraMax) {
+      for (const p of palavra) {
+        for (const caracter of Array.from(p.texto)) {
+          const pedaco = { ...p, texto: caracter };
+          const medida = largura(pedaco, f);
+          if (larguraAtual + medida > larguraMax && atual.length) {
+            resultado.push(atual);
+            atual = [];
+            larguraAtual = 0;
+          }
+          atual.push(pedaco);
+          larguraAtual += medida;
+        }
+      }
+    } else {
+      atual.push(...palavra);
+      larguraAtual += w;
+    }
   }
   while (atual.length && atual.at(-1)!.texto === " ") atual.pop();
   if (atual.length) resultado.push(atual);
@@ -234,7 +308,8 @@ function desenharLinha(pagina: PDFPage, linha: Pedaco[], x: number, y: number, f
 }
 
 const dataPorExtenso = (d: Date) =>
-  new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "numeric", month: "long", year: "numeric" }).format(d);
+  new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "numeric", month: "long", year: "numeric" })
+    .format(d);
 
 async function gerarPdf(titulo: string, blocosEntrada: Bloco[], opcoes: OpcoesDocumento): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
@@ -268,7 +343,10 @@ async function gerarPdf(titulo: string, blocosEntrada: Bloco[], opcoes: OpcoesDo
   let tituloTopo = titulo;
   if (blocos[0]?.tipo === "titulo") tituloTopo = blocos.shift()!.texto;
   let subtituloTopo = "";
-  if ((blocos[0]?.tipo === "paragrafo" || blocos[0]?.tipo === "subtitulo") && blocos[0].texto.length <= 110 && blocos.length > 1) {
+  if (
+    (blocos[0]?.tipo === "paragrafo" || blocos[0]?.tipo === "subtitulo") && blocos[0].texto.length <= 110 &&
+    blocos.length > 1
+  ) {
     subtituloTopo = blocos.shift()!.texto;
   }
 
@@ -281,7 +359,9 @@ async function gerarPdf(titulo: string, blocosEntrada: Bloco[], opcoes: OpcoesDo
 
   // Faixa do topo, só na primeira página.
   const linhasTitulo = linhas(tituloTopo, est(negrito, 21, COR.branco), est(negrito, 21, COR.branco), UTIL, f);
-  const linhasSub = subtituloTopo ? linhas(subtituloTopo, est(normal, 11, COR.subtituloTopo), est(negrito, 11, COR.subtituloTopo), UTIL, f) : [];
+  const linhasSub = subtituloTopo
+    ? linhas(subtituloTopo, est(normal, 11, COR.subtituloTopo), est(negrito, 11, COR.subtituloTopo), UTIL, f)
+    : [];
   const alturaFaixa = 44 + linhasTitulo.length * 26 + linhasSub.length * 15 + 22;
   pagina.drawRectangle({ x: 0, y: ALTURA_A4 - alturaFaixa, width: LARGURA_A4, height: alturaFaixa, color: COR.indigo });
   y = ALTURA_A4 - 50;
@@ -294,7 +374,13 @@ async function gerarPdf(titulo: string, blocosEntrada: Bloco[], opcoes: OpcoesDo
     desenharLinha(pagina, l, MARGEM, y, f);
     y -= 15;
   }
-  pagina.drawText(data, { x: MARGEM, y: ALTURA_A4 - alturaFaixa + 14, size: 8.5, font: normal, color: COR.subtituloTopo });
+  pagina.drawText(data, {
+    x: MARGEM,
+    y: ALTURA_A4 - alturaFaixa + 14,
+    size: 8.5,
+    font: normal,
+    color: COR.subtituloTopo,
+  });
   y = ALTURA_A4 - alturaFaixa - 30;
 
   const novaPagina = () => {
@@ -306,7 +392,14 @@ async function gerarPdf(titulo: string, blocosEntrada: Bloco[], opcoes: OpcoesDo
     if (y - altura < RODAPE) novaPagina();
   };
 
-  const paragrafo = (texto: string, x: number, larguraMax: number, depois: number, base = corpo, forte = corpoForte) => {
+  const paragrafo = (
+    texto: string,
+    x: number,
+    larguraMax: number,
+    depois: number,
+    base = corpo,
+    forte = corpoForte,
+  ) => {
     const alturaLinha = base.tamanho * 1.45;
     for (const l of linhas(texto, base, forte, larguraMax, f)) {
       garantir(alturaLinha);
@@ -319,10 +412,75 @@ async function gerarPdf(titulo: string, blocosEntrada: Bloco[], opcoes: OpcoesDo
   for (let i = 0; i < blocos.length; i++) {
     const b = blocos[i]!;
 
+    if (b.tipo === "tabela") {
+      const col = UTIL / b.cabecalho.length;
+      const base = est(normal, 9, COR.texto), forte = est(negrito, 9, COR.texto);
+      const preparar = (valores: string[], header = false) =>
+        b.cabecalho.map((_, c) => linhas(valores[c] ?? "", header ? forte : base, forte, Math.max(8, col - 12), f));
+      const cab = preparar(b.cabecalho, true);
+      const alturaCab = Math.max(1, ...cab.map((c) => c.length)) * 13 + 12;
+      if (b.cabecalho.length > 6 || alturaCab > 180) {
+        // Tabela larga ou cabeçalho enorme: ficha legível, sem cortar conteúdo.
+        for (const linha of b.linhas) {
+          b.cabecalho.forEach((nome, c) => paragrafo(`**${nome}:** ${linha[c] ?? ""}`, MARGEM, UTIL, 3));
+          y -= 8;
+        }
+        continue;
+      }
+      const desenharFaixa = (celulas: Pedaco[][][], inicio: number, quantidade: number, header: boolean) => {
+        const altura = quantidade * 13 + 12;
+        pagina.drawRectangle({
+          x: MARGEM,
+          y: y - altura,
+          width: UTIL,
+          height: altura,
+          color: header ? COR.indigoSuave : COR.branco,
+        });
+        celulas.forEach((c, coluna) =>
+          c.slice(inicio, inicio + quantidade).forEach((l, n) =>
+            desenharLinha(pagina, l, MARGEM + coluna * col + 6, y - 15 - n * 13, f)
+          )
+        );
+        y -= altura;
+        pagina.drawLine({ start: { x: MARGEM, y }, end: { x: MARGEM + UTIL, y }, thickness: 0.6, color: COR.borda });
+      };
+      garantir(alturaCab + 25);
+      desenharFaixa(cab, 0, Math.max(1, ...cab.map((c) => c.length)), true);
+      for (const valores of b.linhas) {
+        const celulas = preparar(valores);
+        const total = Math.max(1, ...celulas.map((c) => c.length));
+        const alturaLinha = total * 13 + 12;
+        if (alturaLinha <= ALTURA_A4 - MARGEM - RODAPE - alturaCab && y - alturaLinha < RODAPE) {
+          novaPagina();
+          desenharFaixa(cab, 0, Math.max(1, ...cab.map((c) => c.length)), true);
+        }
+        let inicio = 0;
+        while (inicio < total) {
+          let cabem = Math.floor((y - RODAPE - 12) / 13);
+          if (cabem < 1) {
+            novaPagina();
+            desenharFaixa(cab, 0, Math.max(1, ...cab.map((c) => c.length)), true);
+            cabem = Math.max(1, Math.floor((y - RODAPE - 12) / 13));
+          }
+          const quantidade = Math.min(cabem, total - inicio);
+          desenharFaixa(celulas, inicio, quantidade, false);
+          inicio += quantidade;
+        }
+      }
+      y -= 12;
+      continue;
+    }
     if (b.tipo === "titulo" || b.tipo === "subtitulo") {
       garantir(48);
       y -= 14;
-      paragrafo(b.texto.replace(/\*\*/g, ""), MARGEM, UTIL, 0, est(negrito, 13.5, COR.indigo), est(negrito, 13.5, COR.indigo));
+      paragrafo(
+        b.texto.replace(/\*\*/g, ""),
+        MARGEM,
+        UTIL,
+        0,
+        est(negrito, 13.5, COR.indigo),
+        est(negrito, 13.5, COR.indigo),
+      );
       y -= 5;
       pagina.drawLine({ start: { x: MARGEM, y }, end: { x: MARGEM + UTIL, y }, thickness: 1, color: COR.indigoLinha });
       y -= 8;
@@ -331,7 +489,14 @@ async function gerarPdf(titulo: string, blocosEntrada: Bloco[], opcoes: OpcoesDo
     if (b.tipo === "secao") {
       garantir(34);
       y -= 8;
-      paragrafo(b.texto.replace(/\*\*/g, ""), MARGEM, UTIL, 4, est(negrito, 11.5, COR.texto), est(negrito, 11.5, COR.texto));
+      paragrafo(
+        b.texto.replace(/\*\*/g, ""),
+        MARGEM,
+        UTIL,
+        4,
+        est(negrito, 11.5, COR.texto),
+        est(negrito, 11.5, COR.texto),
+      );
       continue;
     }
     if (b.tipo === "paragrafo") {
@@ -389,7 +554,14 @@ async function gerarPdf(titulo: string, blocosEntrada: Bloco[], opcoes: OpcoesDo
       garantir(altura);
       pagina.drawRectangle({ x: MARGEM, y: y - altura, width: UTIL, height: altura, color: COR.fundoFicha });
       pagina.drawRectangle({ x: MARGEM, y: y - altura, width: 3, height: altura, color: COR.indigo });
-      if (!primeira) pagina.drawLine({ start: { x: MARGEM + 3, y }, end: { x: MARGEM + UTIL, y }, thickness: 0.6, color: COR.borda });
+      if (!primeira) {
+        pagina.drawLine({
+          start: { x: MARGEM + 3, y },
+          end: { x: MARGEM + UTIL, y },
+          thickness: 0.6,
+          color: COR.borda,
+        });
+      }
       let yr = y - PAD - 8;
       for (const l of lr) {
         desenharLinha(pagina, l, MARGEM + PAD + 4, yr, f);
@@ -410,9 +582,20 @@ async function gerarPdf(titulo: string, blocosEntrada: Bloco[], opcoes: OpcoesDo
   // Rodapé com o número da página, em todas as páginas.
   const paginas = pdf.getPages();
   paginas.forEach((p, n) => {
-    p.drawLine({ start: { x: MARGEM, y: 38 }, end: { x: LARGURA_A4 - MARGEM, y: 38 }, thickness: 0.6, color: COR.borda });
+    p.drawLine({
+      start: { x: MARGEM, y: 38 },
+      end: { x: LARGURA_A4 - MARGEM, y: 38 },
+      thickness: 0.6,
+      color: COR.borda,
+    });
     const numero = `${n + 1} / ${paginas.length}`;
-    p.drawText(numero, { x: LARGURA_A4 - MARGEM - normal.widthOfTextAtSize(numero, 8), y: 24, size: 8, font: normal, color: COR.cinza });
+    p.drawText(numero, {
+      x: LARGURA_A4 - MARGEM - normal.widthOfTextAtSize(numero, 8),
+      y: 24,
+      size: 8,
+      font: normal,
+      color: COR.cinza,
+    });
   });
   return await pdf.save();
 }

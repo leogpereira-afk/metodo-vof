@@ -15,9 +15,18 @@ Valor e prazo abaixo.
 
 test("lerBlocos reconhece títulos, itens e parágrafos de várias linhas", () => {
   assert.deepEqual(lerBlocos(EXEMPLO).map((b) => b.tipo), [
-    "titulo", "subtitulo", "paragrafo", "secao", "item", "item", "item",
+    "titulo",
+    "subtitulo",
+    "paragrafo",
+    "secao",
+    "item",
+    "item",
+    "item",
   ]);
-  assert.equal(lerBlocos(EXEMPLO)[2]!.texto, "Prezados, apresentamos a **proposta** para a obra. Valor e prazo abaixo.");
+  assert.equal(
+    lerBlocos(EXEMPLO)[2]!.texto,
+    "Prezados, apresentamos a **proposta** para a obra. Valor e prazo abaixo.",
+  );
 });
 
 test("trechos separa negrito", () => {
@@ -34,7 +43,10 @@ test("nome do arquivo sem acento nem espaço", () => {
 });
 
 test("gera PDF e DOCX válidos, inclusive com emoji e texto longo", async () => {
-  const longo = EXEMPLO + "\n\n" + Array.from({ length: 120 }, (_, i) => `Cláusula ${i + 1}: texto de exemplo com acentuação — ção, ã, é.`).join("\n\n");
+  const longo = EXEMPLO + "\n\n" +
+    Array.from({ length: 120 }, (_, i) => `Cláusula ${i + 1}: texto de exemplo com acentuação — ção, ã, é.`).join(
+      "\n\n",
+    );
   const pdf = await gerarDocumento("Proposta Açaí", "pdf", longo);
   assert.equal(new TextDecoder().decode(pdf.bytes.slice(0, 5)), "%PDF-");
   assert.equal(pdf.nome, "Proposta-Acai.pdf");
@@ -53,10 +65,31 @@ test("destaque com > e separador --- no Markdown do documento", () => {
 });
 
 test("PDF com a fonte de emoji embutida fica pequeno; sem ela, o emoji só some", async () => {
-  const md = "# 💳 Dados para pagamento\nPessoa Física\n\n## ⚡ PIX\n- **Banco:** 208 · BTG Pactual\n- **Chave:** 📱 11 97274-6113\n\n> ✅ Envie o comprovante.";
+  const md =
+    "# 💳 Dados para pagamento\nPessoa Física\n\n## ⚡ PIX\n- **Banco:** 208 · BTG Pactual\n- **Chave:** 📱 11 97274-6113\n\n> ✅ Envie o comprovante.";
   const comEmoji = await gerarDocumento("Pix", "pdf", md);
   const semEmoji = await gerarDocumento("Pix", "pdf", md, { fonteEmoji: null });
   assert.ok(semEmoji.bytes.length < 20_000, `sem emoji: ${semEmoji.bytes.length}`);
   assert.ok(comEmoji.bytes.length > semEmoji.bytes.length + 50_000, "a fonte de emoji entrou no PDF");
   assert.ok(comEmoji.bytes.length < 300_000, `PDF grande demais: ${comEmoji.bytes.length}`);
+});
+
+test("tabelas preservam cabeçalho e células como estrutura de documento", async () => {
+  const b = lerBlocos("# Roteiro\n\n| Dia | Cidade |\n|---|---|\n| 30/10 | Porto Seguro |\n| 02/11 | Montes Claros |");
+  assert.equal(b[1]?.tipo, "tabela");
+  assert.deepEqual((b[1] as any).cabecalho, ["Dia", "Cidade"]);
+  assert.deepEqual((b[1] as any).linhas, [["30/10", "Porto Seguro"], ["02/11", "Montes Claros"]]);
+  const doc = await gerarDocumento("Roteiro", "docx", "| Dia | Cidade |\n|---|---|\n| 30/10 | Porto Seguro |");
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { execFileSync } = await import("node:child_process");
+  const dir = await mkdtemp(tmpdir() + "/donboy-doc-");
+  try {
+    await writeFile(dir + "/a.docx", doc.bytes);
+    const xml = execFileSync("/usr/bin/unzip", ["-p", dir + "/a.docx", "word/document.xml"], { encoding: "utf8" });
+    assert.ok(xml.includes("<w:tbl>"));
+    assert.ok(xml.includes("Porto Seguro"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

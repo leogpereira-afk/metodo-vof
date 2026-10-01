@@ -1,20 +1,21 @@
-import { Bot, InlineKeyboard, InputFile, type Api, type Context } from "grammy";
-import { MARCA_REGISTRO, comRegistroInterno, type Cerebro } from "./claude.ts";
+import { previaRegistroCentral, type RegistroCentral } from "./central.ts";
+import { type Api, Bot, type Context, InlineKeyboard, InputFile } from "grammy";
+import { type Cerebro, comRegistroInterno, MARCA_REGISTRO } from "./claude.ts";
 import { previaSolicitacao, validarSolicitacao } from "./compras.ts";
 import type { Config } from "./config.ts";
 import { formatarResumo } from "./custo.ts";
 import { previaEmail, validarEmail } from "./email.ts";
-import { paraHtmlTelegram, semMarcacao } from "./formato.ts";
+import { partesTelegram } from "./formato.ts";
 import type { Memoria } from "./memoria.ts";
 import type { Sistemas } from "./sistemas.ts";
 import {
+  type AcaoIrreversivel,
   CANCELAR,
   codificarConfirmacao,
   dataPorExtenso,
   dividirMensagem,
   lerConfirmacao,
   mesPorExtenso,
-  type AcaoIrreversivel,
 } from "./telegram-util.ts";
 
 const AJUDA = [
@@ -48,7 +49,7 @@ export function criarBot(
   config: Config,
   memoria: Memoria,
   cerebro: Cerebro,
-  sistemas: Pick<Sistemas, "enviarEmail" | "solicitarCompra">,
+  sistemas: Pick<Sistemas, "enviarEmail" | "solicitarCompra" | "registrarCentral">,
 ): Bot {
   const bot = new Bot(config.telegramToken);
 
@@ -84,7 +85,9 @@ export function criarBot(
 
   bot.command("esquecer", async (ctx) => {
     const id = Number(ctx.match.trim().replace(/^#/, ""));
-    if (!Number.isSafeInteger(id) || id <= 0) return ctx.reply("Use assim: /esquecer [número do fato]. Veja os números em /fatos.");
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return ctx.reply("Use assim: /esquecer [número do fato]. Veja os números em /fatos.");
+    }
     const fato = await memoria.buscarFato(id);
     if (!fato) return ctx.reply(`Não existe fato #${id}.`);
     await pedirConfirmacao(ctx.api, ctx.chat.id, `Apagar o fato #${id}?\n\n“${fato.conteudo}”\n\nIsso não tem volta.`, {
@@ -99,8 +102,7 @@ export function criarBot(
       ctx.chat.id,
       "Apagar TODO o histórico desta conversa? Os fatos salvos continuam.\n\nIsso não tem volta.",
       { tipo: "limpar" },
-    ),
-  );
+    ));
 
   // Cancelar e botão vencido só tiram os botões: a mensagem (a prévia de um
   // e-mail, por exemplo) continua na conversa, e um aviso curto vem abaixo.
@@ -126,7 +128,10 @@ export function criarBot(
 
   bot.on("message:text", async (ctx) => {
     const chatId = ctx.chat.id;
-    const minha = await memoria.salvarMensagem(chatId, "user", ctx.message.text);
+    const recebido = (ctx.update as unknown as { _mensagem_id?: number })._mensagem_id;
+    const minha = Number.isSafeInteger(recebido)
+      ? recebido
+      : await memoria.salvarMensagem(chatId, "user", ctx.message.text);
 
     const pararDigitando = manterDigitando(ctx);
     try {
@@ -142,10 +147,14 @@ export function criarBot(
 
   bot.catch(async ({ ctx, error }) => {
     console.error("Erro no update", ctx.update.update_id, error);
-    await ctx.reply("Deu erro do meu lado. Tente de novo em instantes.").catch(() => {});
+    await ctx.reply(
+      "Não concluí o pedido. Registrei a falha; se houve uma ação externa, confira o resultado antes de repetir.",
+    ).catch(() => {});
+    throw error;
   });
 
   async function executar(acao: AcaoIrreversivel, chatId: number): Promise<string> {
+    if (acao.tipo === "central") return await registrarCentral(acao.pendenteId, chatId);
     if (acao.tipo === "email") return await enviarEmail(acao.pendenteId, chatId);
     if (acao.tipo === "fatos") return await apagarFatos(acao.pendenteId, chatId);
     if (acao.tipo === "compra") return await pedirCompra(acao.pendenteId, chatId);
@@ -162,11 +171,13 @@ export function criarBot(
   // atômica: se já foi enviado (dois toques), não manda de novo. O resultado
   // entra no histórico para o Don Boy saber, na próxima conversa, que saiu.
   async function enviarEmail(pendenteId: number, chatId: number): Promise<string> {
-    const pendente = await memoria.reservarPendente(pendenteId);
-    if (!pendente || pendente.tipo !== "email") return "Esse e-mail já foi enviado ou não existe mais. Nada foi feito agora.";
+    const pendente = await memoria.reservarPendente(pendenteId, "email");
+    if (!pendente || pendente.tipo !== "email") {
+      return "Não executei agora: esta confirmação já foi usada, expirou ou está em análise. Confira o resultado anterior antes de reenviar.";
+    }
     const validacao = validarEmail(pendente.dados);
     if (!validacao.ok) {
-      await memoria.concluirPendente(pendenteId, `recusado: ${validacao.erro}`);
+      await memoria.concluirPendente(pendenteId, `recusado: ${validacao.erro}`, "falhou");
       return `Não enviei: ${validacao.erro}`;
     }
     const { para, assunto } = validacao.email;
@@ -174,26 +185,34 @@ export function criarBot(
       await sistemas.enviarEmail(validacao.email);
     } catch (e) {
       const motivo = (e as Error).message;
-      await memoria.concluirPendente(pendenteId, `erro: ${motivo}`);
-      await memoria.salvarMensagem(chatId, "assistant", `${MARCA_REGISTRO} O e-mail #${pendenteId} NÃO foi enviado (${motivo}).`);
-      return `❌ Não enviei o e-mail: ${motivo}`;
+      await memoria.concluirPendente(pendenteId, `erro: ${motivo}`, "incerto");
+      await memoria.salvarMensagem(
+        chatId,
+        "assistant",
+        `${MARCA_REGISTRO} O envio do e-mail #${pendenteId} não pôde ser confirmado (${motivo}). Confira o Gmail antes de tentar outra vez.`,
+      );
+      return `⚠️ Não consegui confirmar o envio. Confira a pasta Enviados antes de repetir. Detalhe: ${motivo}`;
     }
     await memoria.concluirPendente(pendenteId, "enviado");
     await memoria.salvarMensagem(
       chatId,
       "assistant",
-      `${MARCA_REGISTRO} O dono tocou em Enviar e o e-mail #${pendenteId} foi enviado para ${para.join(", ")}${assunto ? `, assunto "${assunto}"` : ""}.`,
+      `${MARCA_REGISTRO} O dono tocou em Enviar e o e-mail #${pendenteId} foi enviado para ${para.join(", ")}${
+        assunto ? `, assunto "${assunto}"` : ""
+      }.`,
     );
     return `✅ E-mail enviado para ${para.join(", ")}.`;
   }
 
   // Solicitação de material ao Compras, depois do toque em Solicitar.
   async function pedirCompra(pendenteId: number, chatId: number): Promise<string> {
-    const pendente = await memoria.reservarPendente(pendenteId);
-    if (!pendente || pendente.tipo !== "compra") return "Essa solicitação já foi enviada ou não existe mais. Nada foi feito agora.";
+    const pendente = await memoria.reservarPendente(pendenteId, "compra");
+    if (!pendente || pendente.tipo !== "compra") {
+      return "Não executei agora: esta confirmação já foi usada, expirou ou está em análise. Confira o resultado anterior antes de repetir.";
+    }
     const validacao = validarSolicitacao(pendente.dados);
     if (!validacao.ok) {
-      await memoria.concluirPendente(pendenteId, `recusada: ${validacao.erro}`);
+      await memoria.concluirPendente(pendenteId, `recusada: ${validacao.erro}`, "falhou");
       return `Não enviei: ${validacao.erro}`;
     }
     try {
@@ -202,29 +221,65 @@ export function criarBot(
       await memoria.salvarMensagem(
         chatId,
         "assistant",
-        `${MARCA_REGISTRO} O dono tocou em Solicitar e a solicitação de compra ${codigo ?? `#${pendenteId}`} foi aberta no Compras.`,
+        `${MARCA_REGISTRO} O dono tocou em Solicitar e a solicitação de compra ${
+          codigo ?? `#${pendenteId}`
+        } foi aberta no Compras.`,
       );
       return `✅ Solicitação ${codigo ?? `#${pendenteId}`} aberta no Compras. O comprador já vê na fila.`;
     } catch (e) {
       const motivo = (e as Error).message;
-      await memoria.concluirPendente(pendenteId, `erro: ${motivo}`);
-      await memoria.salvarMensagem(chatId, "assistant", `${MARCA_REGISTRO} A solicitação de compra #${pendenteId} NÃO foi aberta (${motivo}).`);
-      return `❌ Não abri a solicitação: ${motivo}`;
+      await memoria.concluirPendente(pendenteId, `erro: ${motivo}`, "incerto");
+      await memoria.salvarMensagem(
+        chatId,
+        "assistant",
+        `${MARCA_REGISTRO} A solicitação de compra #${pendenteId} ficou sem confirmação (${motivo}). Confira o Compras antes de repetir.`,
+      );
+      return `⚠️ Não consegui confirmar a solicitação. Confira o Compras antes de repetir. Detalhe: ${motivo}`;
     }
   }
 
   // Fatos que o Claude propôs apagar, depois do toque em Apagar.
   async function apagarFatos(pendenteId: number, chatId: number): Promise<string> {
-    const pendente = await memoria.reservarPendente(pendenteId);
+    const pendente = await memoria.reservarPendente(pendenteId, "fatos");
     const ids = ((pendente?.dados as { ids?: unknown } | undefined)?.ids ?? []) as unknown[];
-    if (!pendente || pendente.tipo !== "fatos" || !Array.isArray(ids)) return "Essa limpeza já foi feita ou não existe mais. Nada foi feito agora.";
+    if (!pendente || pendente.tipo !== "fatos" || !Array.isArray(ids)) {
+      return "Essa limpeza já foi feita ou não existe mais. Nada foi feito agora.";
+    }
     const apagados: number[] = [];
     for (const id of ids.map(Number).filter(Number.isSafeInteger)) {
       if (await memoria.apagarFato(id)) apagados.push(id);
     }
     await memoria.concluirPendente(pendenteId, `apagados: ${apagados.join(", ") || "nenhum"}`);
-    await memoria.salvarMensagem(chatId, "assistant", `${MARCA_REGISTRO} O dono tocou em Apagar e os fatos ${apagados.join(", ") || "(nenhum)"} foram apagados da memória.`);
-    return apagados.length ? `✅ Apagados da memória: ${apagados.map((id) => `#${id}`).join(", ")}.` : "Esses fatos já não existiam. Nada mudou.";
+    await memoria.salvarMensagem(
+      chatId,
+      "assistant",
+      `${MARCA_REGISTRO} O dono tocou em Apagar e os fatos ${
+        apagados.join(", ") || "(nenhum)"
+      } foram apagados da memória.`,
+    );
+    return apagados.length
+      ? `✅ Apagados da memória: ${apagados.map((id) => `#${id}`).join(", ")}.`
+      : "Esses fatos já não existiam. Nada mudou.";
+  }
+
+  async function registrarCentral(pendenteId: number, chatId: number): Promise<string> {
+    const pendente = await memoria.reservarPendente(pendenteId, "central");
+    if (!pendente) return "Esta confirmação expirou ou já foi utilizada. Confira o resultado anterior.";
+    try {
+      const r = await sistemas.registrarCentral(pendente.dados as RegistroCentral);
+      if (!r.gravado) throw new Error("A Central não confirmou a gravação.");
+      await memoria.concluirPendente(pendenteId, "registrado: " + r.id);
+      await memoria.salvarMensagem(
+        chatId,
+        "assistant",
+        `${MARCA_REGISTRO} Registro #${pendenteId} gravado e conferido na Central do Léo; id ${r.id}.`,
+      );
+      return "✅ Registro gravado e conferido na Central do Léo.";
+    } catch (e) {
+      await memoria.concluirPendente(pendenteId, (e as Error).message, "incerto");
+      return "⚠️ Não confirmei a gravação: " + (e as Error).message +
+        ". Confira o cadastro antes de preparar outra tentativa.";
+    }
   }
 
   return bot;
@@ -241,29 +296,77 @@ export async function turno(
   cerebro: Cerebro,
 ): Promise<void> {
   const historico = await memoria.historico(chatId);
-  const { texto, anexos, consultas, confirmacoes } = await cerebro.responder(historico, dataPorExtenso(new Date(), config.fuso));
-  // O dono recebe só o texto; o histórico guarda também o que foi consultado.
-  await memoria.salvarMensagem(chatId, "assistant", comRegistroInterno(texto, consultas));
-  await responderFormatado(api, chatId, texto);
-  for (const anexo of anexos) {
-    await api.sendDocument(chatId, new InputFile(anexo.bytes, anexo.nome), { caption: anexo.titulo });
-  }
-  // Cada ação preparada aparece inteira, com o botão embaixo.
-  for (const c of confirmacoes) {
-    if (c.tipo === "email") {
-      await pedirConfirmacao(api, chatId, previaEmail(c.email), { tipo: "email", pendenteId: c.pendenteId }, "📤 Enviar");
-    } else if (c.tipo === "compra") {
-      await pedirConfirmacao(api, chatId, previaSolicitacao(c.solicitacao), { tipo: "compra", pendenteId: c.pendenteId }, "🛒 Solicitar");
-    } else {
-      const lista = c.fatos.map((f) => `#${f.id}. ${f.conteudo}`).join("\n\n");
-      await pedirConfirmacao(
-        api,
-        chatId,
-        `🗑️ APAGAR ${c.fatos.length} FATO(S) DA MEMÓRIA${c.motivo ? `\n${c.motivo}` : ""}\n\n${lista}\n\nIsso não tem volta.`,
-        { tipo: "fatos", pendenteId: c.pendenteId },
-        "🗑️ Apagar",
-      );
+  const turnoId = crypto.randomUUID(), inicio = Date.now();
+  await memoria.registrarTurno(turnoId, { chat_id: chatId, estado: "gerando" });
+  let entregaIniciada = false;
+  try {
+    const { texto, anexos, consultas, confirmacoes, usos } = await cerebro.responder(
+      historico,
+      dataPorExtenso(new Date(), config.fuso),
+      { chatId },
+    );
+    await memoria.registrarTurno(turnoId, {
+      chat_id: chatId,
+      estado: "gerado",
+      resposta: texto,
+      consultas,
+      modelo: usos.at(-1)?.modelo,
+      custo_usd: usos.reduce((s, u) => s + u.custoUsd, 0),
+      duracao_ms: Date.now() - inicio,
+    });
+    // O dono recebe só o texto; o histórico guarda também o que foi consultado.
+    entregaIniciada = true;
+    await responderFormatado(api, chatId, texto);
+    for (const anexo of anexos) {
+      await api.sendDocument(chatId, new InputFile(anexo.bytes, anexo.nome), { caption: anexo.titulo });
     }
+    // Cada ação preparada aparece inteira, com o botão embaixo.
+    for (const c of confirmacoes) {
+      if (c.tipo === "central") {
+        await pedirConfirmacao(api, chatId, previaRegistroCentral(c.registro), {
+          tipo: "central",
+          pendenteId: c.pendenteId,
+        }, "✅ Registrar");
+      } else if (c.tipo === "email") {
+        await pedirConfirmacao(
+          api,
+          chatId,
+          previaEmail(c.email),
+          { tipo: "email", pendenteId: c.pendenteId },
+          "📤 Enviar",
+        );
+      } else if (c.tipo === "compra") {
+        await pedirConfirmacao(api, chatId, previaSolicitacao(c.solicitacao), {
+          tipo: "compra",
+          pendenteId: c.pendenteId,
+        }, "🛒 Solicitar");
+      } else {
+        const lista = c.fatos.map((f) => `#${f.id}. ${f.conteudo}`).join("\n\n");
+        await pedirConfirmacao(
+          api,
+          chatId,
+          `🗑️ APAGAR ${c.fatos.length} FATO(S) DA MEMÓRIA${
+            c.motivo ? `\n${c.motivo}` : ""
+          }\n\n${lista}\n\nIsso não tem volta.`,
+          { tipo: "fatos", pendenteId: c.pendenteId },
+          "🗑️ Apagar",
+        );
+      }
+    }
+    await memoria.salvarMensagem(chatId, "assistant", comRegistroInterno(texto, consultas));
+    await memoria.registrarTurno(turnoId, {
+      chat_id: chatId,
+      estado: "entregue",
+      finalizado_em: new Date().toISOString(),
+    });
+  } catch (e) {
+    await memoria.registrarTurno(turnoId, {
+      chat_id: chatId,
+      estado: entregaIniciada ? "entrega_incerta" : "falhou",
+      erro: (e as Error).message,
+      finalizado_em: new Date().toISOString(),
+    });
+    throw e;
   }
 }
 
@@ -291,12 +394,14 @@ async function responderLongo(ctx: Context, texto: string): Promise<void> {
 // Resposta do Claude: negrito, listas e tabelas em HTML do Telegram. Se o
 // Telegram recusar a marcação de um trecho, esse trecho vai em texto puro.
 async function responderFormatado(api: Api, chatId: number, texto: string): Promise<void> {
-  for (const parte of dividirMensagem(texto)) {
+  for (const parte of partesTelegram(texto)) {
     try {
-      await api.sendMessage(chatId, paraHtmlTelegram(parte), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
+      await api.sendMessage(chatId, parte.html, { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
     } catch (e) {
+      const mensagem = (e as Error).message;
+      if (!/can't parse entities|message is too long|can't find end|unsupported start tag/i.test(mensagem)) throw e;
       console.error("HTML recusado pelo Telegram, indo em texto puro:", (e as Error).message);
-      await api.sendMessage(chatId, semMarcacao(parte));
+      await api.sendMessage(chatId, parte.texto);
     }
   }
 }
