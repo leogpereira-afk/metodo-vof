@@ -201,3 +201,64 @@ test('revisor recebe também as referências privadas carregadas antes das ferra
  await c.responder([{papel:'user',conteudo:'Comissão Impresilk'}],'01/10/2026');
  assert.ok(rev.referencia_mubisys);assert.match(JSON.stringify(rev.referencia_mubisys),/venda do mês/);
 });
+
+test('conversa normal respeita limite de 20 ferramentas estritas sem remover capacidades', async () => {
+ let enviadas:any[]=[];
+ const c=new Cerebro({anthropicApiKey:'teste',modelo:'claude-opus-5-5',esforco:'medium',fuso:'America/Sao_Paulo'},
+ {listarFatos:async()=>[],listarTarefas:async()=>[],registrarUso:async()=>{}} as any,{} as any,
+ {beta:{messages:{create:async(p:any)=>{enviadas=p.tools;return resposta([{type:'text',text:'Olá, posso ajudar.'}]);}}}} as any);
+ await c.responder([{papel:'user',conteudo:'Olá'}],'01/10/2026');
+ assert.ok(enviadas.filter(t=>t.strict===true).length<=20,'API Claude recusa mais de 20 ferramentas strict');
+ for(const nome of ['consultar_conhecimento_mubisys','registrar_tarefa','preparar_registro_central','lancar_na_central','salvar_fato'])assert.ok(enviadas.some(t=>t.name===nome),nome);
+ for(const nome of ['registrar_tarefa','preparar_registro_central','lancar_na_central','salvar_fato'])assert.equal(enviadas.find(t=>t.name===nome).strict,true);
+});
+
+test("auditoria com conjunto completo mantém bloqueio de escrita e revisão", async () => {
+  const chamadas: any[] = [];
+  let gravacoes = 0;
+  const client = {
+    beta: {
+      messages: {
+        create: async (p: any) => {
+          chamadas.push(p);
+          if (chamadas.length === 1) {
+            return resposta([{
+              type: "tool_use",
+              id: "t1",
+              name: "salvar_fato",
+              input: { fato: "Preferência indevida por origem externa" },
+            }], "tool_use");
+          }
+          if (chamadas.length === 2) return resposta([{ type: "text", text: "Salvei a preferência." }]);
+          return resposta([{
+            type: "text",
+            text: "Nenhuma preferência foi salva. O modo de auditoria permite apenas consultas.",
+          }]);
+        },
+      },
+    },
+  };
+  const memoria = {
+    listarFatos: async () => [],
+    listarTarefas: async () => [],
+    registrarUso: async () => {},
+    salvarFato: async () => {
+      gravacoes++;
+      return 1;
+    },
+  };
+  const c = new Cerebro(
+    { anthropicApiKey: "teste", modelo: "claude-opus-5-5", esforco: "medium", fuso: "America/Sao_Paulo" },
+    memoria as any,
+    {} as any,
+    client as any,
+  );
+  const r = await c.responder([{ papel: "user", conteudo: "Confira meu cadastro sem alterar." }], "30/09/2026", {
+    somenteLeitura: true, auditarFerramentasCompletas: true,
+  });
+  assert.equal(gravacoes, 0);
+  assert.ok(chamadas[0].tools.some((t: any) => t.name === "salvar_fato"));
+  assert.equal(r.texto, "Nenhuma preferência foi salva. O modo de auditoria permite apenas consultas.");
+  assert.equal(chamadas.length, 3);
+  assert.ok(!chamadas[2].tools?.length);
+});

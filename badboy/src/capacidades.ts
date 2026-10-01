@@ -8,7 +8,9 @@ const ferramenta = (
 ): Anthropic.Beta.BetaToolUnion => ({
   name,
   description,
-  strict: true,
+  // Consulta sem efeitos externos; os parâmetros também são validados na leitura/SQL.
+  // Preserva as 20 ferramentas estritas existentes dentro do limite da API Claude.
+  strict: name !== "consultar_conhecimento_mubisys",
   input_schema: { type: "object", properties, required: Object.keys(properties), additionalProperties: false },
 } as Anthropic.Beta.BetaToolUnion);
 export const FERRAMENTAS_CONCIERGE = [

@@ -423,7 +423,7 @@ export class Cerebro {
   async responder(
     historico: Mensagem[],
     hoje: string,
-    opcoes: { chatId?: number; somenteLeitura?: boolean } = {},
+    opcoes: { chatId?: number; somenteLeitura?: boolean; auditarFerramentasCompletas?: boolean } = {},
   ): Promise<RespostaTurno> {
     const fatos = await this.memoria.listarFatos();
     const tarefas = await this.memoria.listarTarefas("todas");
@@ -489,7 +489,7 @@ export class Cerebro {
         output_config: { effort: this.config.esforco },
         cache_control: { type: "ephemeral" },
         system,
-        tools: ferramentasPermitidas(this.ferramentas, !!opcoes.somenteLeitura),
+        tools: ferramentasPermitidas(this.ferramentas, !!opcoes.somenteLeitura && !opcoes.auditarFerramentasCompletas),
         messages,
       });
       // Registra o gasto a cada chamada: se uma volta seguinte falhar, o que

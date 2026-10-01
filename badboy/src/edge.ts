@@ -236,7 +236,7 @@ async function perguntaDeTeste(req: Request, pergunta: string): Promise<Response
   const r = await ctx.cerebro.responder(
     [{ papel: "user", conteudo: pergunta.slice(0, 2000), em: new Date().toISOString() }],
     dataPorExtenso(new Date(), ctx.config.fuso),
-    { somenteLeitura: true },
+    { somenteLeitura: true, auditarFerramentasCompletas: new URL(req.url).searchParams.get("ferramentas") === "completas" },
   );
   return json({
     texto: r.texto,
