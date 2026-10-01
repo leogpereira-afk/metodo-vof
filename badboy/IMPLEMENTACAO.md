@@ -1,3 +1,5 @@
+> Atualização: publicação e integração da base privada Mubisys autorizadas e realizadas. Consulte PUBLICACAO.md para as versões e limitações verificadas. As referências abaixo ao pacote local descrevem a etapa anterior à publicação.
+
 # DON BOY — pacote de melhorias
 
 Base preservada: `d7a1af553dc87b2c290a8cb33a68f52ced3a38e8`, usada pelas funções publicadas na auditoria. Branch local: `codex/donboy-melhorias`.

@@ -1,6 +1,8 @@
 # Publicação e verificação do DON BOY
 
-Status: pacote local, aguardando autorização. Não executar estas etapas como consequência de ler este arquivo.
+Status: publicação autorizada pelo dono e realizada em 01/10/2026. Principal v36 (`29c1db0`), ponte v9 (`b287b55`), Claude e conexões preservados. Migrações 0008–0012 no principal e 0004 no segundo aplicadas. Base privada Mubisys carregada. A sequência abaixo fica como referência operacional; ler este arquivo não autoriza novas publicações.
+
+Validação: 71 testes, TypeScript e Deno; saúde e auditoria autenticada ao vivo, recebíveis conferidos por SQL independente, worker HTTP 202, integridade e restrição de acesso aos 22 documentos. A entrega na conversa do Telegram e o primeiro briefing após a publicação ainda dependem do uso e do horário programado.
 
 ## Sequência após autorização
 

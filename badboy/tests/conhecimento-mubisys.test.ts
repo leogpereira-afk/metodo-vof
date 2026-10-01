@@ -8,7 +8,7 @@ test("conhecimento privado busca evidências com fonte e data, preserva valores 
     await db.exec("create role anon;create role authenticated;create role service_role bypassrls;");
     const sql = await readFile("supabase/migrations/0010_donboy_conhecimento.sql", "utf8");
     await db.exec(sql);
-    await db.exec(await readFile('supabase/migrations/0011_donboy_conhecimento_prioridade.sql','utf8'));
+    await db.exec(await readFile('supabase/migrations/0011_donboy_conhecimento_prioridade.sql','utf8'));await db.exec(await readFile('supabase/migrations/0012_donboy_conhecimento_sintese.sql','utf8'));
     await db.exec(
       `insert into badboy_conhecimento_documentos(chave,titulo,origem,data_base,sha256,caracteres) values ('precos','Regras de preço','pacote privado','2026-09-30',repeat('a',64),80),('comissoes','Comissões','pacote privado','2026-09-30',repeat('b',64),80);
  insert into badboy_conhecimento_trechos(documento,ordem,titulo,conteudo) values ('precos',0,'Preço manual','Preço é calculado manualmente fora do ERP. Exemplo antigo não é tabela vigente.'),('comissoes',0,'Regra de comissão','Comissão pela venda do mês. Baixa interna não prova conciliação bancária.'),('comissoes',1,'Continuação','Não inventar percentual de comissão.');`,
@@ -40,10 +40,13 @@ test("conhecimento privado busca evidências com fonte e data, preserva valores 
 });
 test('busca prioriza o relatório consolidado para o mesmo documento fiscal, sem perder a evidência histórica',async()=>{
  const db=new PGlite();try{
- await db.exec('create role anon;create role authenticated;create role service_role bypassrls;');await db.exec(await readFile('supabase/migrations/0010_donboy_conhecimento.sql','utf8'));await db.exec(await readFile('supabase/migrations/0011_donboy_conhecimento_prioridade.sql','utf8'));
+ await db.exec('create role anon;create role authenticated;create role service_role bypassrls;');await db.exec(await readFile('supabase/migrations/0010_donboy_conhecimento.sql','utf8'));await db.exec(await readFile('supabase/migrations/0011_donboy_conhecimento_prioridade.sql','utf8'));await db.exec(await readFile('supabase/migrations/0012_donboy_conhecimento_sintese.sql','utf8'));
  await db.exec(`insert into badboy_conhecimento_documentos(chave,titulo,origem,data_base,sha256,caracteres) values ('01-agente-especialista-mubisys.md','Relatório consolidado','privado','2026-09-30',repeat('a',64),80),('base-conhecimento/2026-09-27/estudo.md','Notas iniciais','privado','2026-09-30',repeat('b',64),80),('outra.md','Outro caso','privado','2026-09-30',repeat('c',64),80);
  insert into badboy_conhecimento_trechos(documento,ordem,titulo,conteudo) values ('01-agente-especialista-mubisys.md',0,'NF 21079','NF 21079: os quatro itens foram conferidos. Não comprova pagamento.'),('base-conhecimento/2026-09-27/estudo.md',0,'NF 21079','NF 21079, NF 21079, NF 21079: nota ainda não aberta.'),('outra.md',0,'NF','Muitas notas NF, NF, NF sem número procurado.');`);
  const r=(await db.query<any>("select badboy_conhecimento_buscar('NF 21079',3) as r")).rows[0].r;
  assert.equal(r.resultados[0].documento,'01-agente-especialista-mubisys.md');assert.equal(r.resultados[0].fonte_consolidada,true);
+ assert.equal(r.resultados.length,1,'havendo síntese do identificador exato, não completar resultados com lacunas antigas');
+ const original=(await db.query<any>("select badboy_conhecimento_ler('base-conhecimento/2026-09-27/estudo.md',0,1) as r")).rows[0].r;
+ assert.match(original.trechos[0].conteudo,/ainda não aberta/);
  }finally{await db.close()}
 });
