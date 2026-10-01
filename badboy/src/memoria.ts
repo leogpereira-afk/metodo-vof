@@ -239,6 +239,34 @@ export class Memoria {
     if (error) throw new Error(error.message);
   }
 
+  async consultarConhecimentoMubisys(consulta: string, documento = "", inicio = 0): Promise<unknown> {
+    if (documento) {
+      if (documento.length > 250 || !Number.isSafeInteger(inicio) || inicio < 0) {
+        throw new Error("Documento ou página inválida.");
+      }
+      const { data, error } = await this.db.rpc("badboy_conhecimento_ler", {
+        p_documento: documento,
+        p_inicio: inicio,
+        p_quantidade: 2,
+      });
+      if (error) throw new Error(error.message);
+      return data;
+    }
+    if (!consulta.trim()) {
+      const { data, error } = await this.db.from("badboy_conhecimento_documentos").select(
+        "chave,titulo,origem,data_base,caracteres",
+      ).order("chave");
+      if (error) throw new Error(error.message);
+      return { tipo: "indice_referencia_historica", documentos: data };
+    }
+    const { data, error } = await this.db.rpc("badboy_conhecimento_buscar", {
+      p_consulta: consulta.slice(0, 300),
+      p_limite: 3,
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
   async registrarUso(registros: RegistroUso[]): Promise<void> {
     if (registros.length === 0) return;
     const { error } = await this.db.from("badboy_uso").insert(

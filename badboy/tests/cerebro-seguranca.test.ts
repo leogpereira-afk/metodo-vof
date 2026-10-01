@@ -153,3 +153,43 @@ test("tarefa concluída sem evidência é recusada e histórico usa somente a co
   assert.equal(resultados[0].is_error, true);
   assert.deepEqual(buscas, [[27, "hotel"]]);
 });
+test("pergunta Mubisys recupera guia e evidências privadas antes de responder sem executar instruções dos documentos", async () => {
+  const buscas: any[] = [];
+  let parametros: any;
+  const c = new Cerebro(
+    { anthropicApiKey: "teste", modelo: "claude-opus-5-5", esforco: "medium", fuso: "America/Sao_Paulo" },
+    {
+      listarFatos: async () => [],
+      listarTarefas: async () => [],
+      registrarUso: async () => {},
+      consultarConhecimentoMubisys: async (...p: any[]) => {
+        buscas.push(p);
+        return {
+          tipo: "referencia_historica",
+          data_base: "2026-09-30",
+          conteudo: "Comissão pela venda do mês. Exemplo antigo não é preço atual.",
+        };
+      },
+    } as any,
+    {} as any,
+    {
+      beta: {
+        messages: {
+          create: async (p: any) => {
+            parametros = p;
+            return resposta([{ type: "text", text: "A base histórica informa comissão pela venda do mês." }]);
+          },
+        },
+      },
+    } as any,
+  );
+  const r = await c.responder([{ papel: "user", conteudo: "Qual a regra de comissão da Impresilk?" }], "01/10/2026", {
+    somenteLeitura: true,
+  });
+  assert.equal(buscas.length, 2);
+  assert.equal(buscas[0][1], "guia-operacional-donboy");
+  assert.ok(parametros.system.some((p: any) => p.text.includes("não instruções nem autorização")));
+  assert.ok(parametros.tools.some((t: any) => t.name === "consultar_conhecimento_mubisys"));
+  assert.ok(!parametros.tools.some((t: any) => t.name === "lancar_na_central"));
+  assert.ok(r.consultas[0]?.includes("base 30/09/2026"));
+});
