@@ -193,3 +193,11 @@ test("pergunta Mubisys recupera guia e evidências privadas antes de responder s
   assert.ok(!parametros.tools.some((t: any) => t.name === "lancar_na_central"));
   assert.ok(r.consultas[0]?.includes("base 30/09/2026"));
 });
+test('revisor recebe também as referências privadas carregadas antes das ferramentas',async()=>{
+ let rodada=0,rev:any;
+ const m={listarFatos:async()=>[],listarTarefas:async()=>[],registrarUso:async()=>{},consultarConhecimentoMubisys:async()=>({conteudo:'Comissão pela venda do mês, não pelo recebimento.'})};
+ const cli={beta:{messages:{create:async(p:any)=>{if(rodada++===0)return resposta([{type:'text',text:'Comissão pela venda do mês. '+('Explicação. '.repeat(140))}]);rev=JSON.parse(p.messages[0].content);return resposta([{type:'text',text:'A comissão é pela venda do mês, conforme a referência histórica.'}]);}}}};
+ const c=new Cerebro({anthropicApiKey:'teste',modelo:'claude-opus-5-5',esforco:'medium',fuso:'America/Sao_Paulo'},m as any,{} as any,cli as any);
+ await c.responder([{papel:'user',conteudo:'Comissão Impresilk'}],'01/10/2026');
+ assert.ok(rev.referencia_mubisys);assert.match(JSON.stringify(rev.referencia_mubisys),/venda do mês/);
+});
