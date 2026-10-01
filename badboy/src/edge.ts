@@ -255,9 +255,15 @@ Deno.serve(async (req) => {
     if (pergunta) return await perguntaDeTeste(req, pergunta);
     if (req.method === "POST" && url.searchParams.get("rotina") === "briefing") return await rotinaBriefing(req);
     if (req.method === "GET") return json({ servico: "Don Boy", versao: "melhorias-1", ok: true });
-    if (req.method === "POST" && ["configurar", "processar"].includes(url.searchParams.get("acao") ?? "")) {
+    if (req.method === "POST" && ["configurar", "processar", "capacidades"].includes(url.searchParams.get("acao") ?? "")) {
       const ctx = await preparar();
       if (!(await autorizado(req, ctx))) return new Response("não autorizado", { status: 401 });
+      if (url.searchParams.get("acao") === "capacidades") return json({
+        claude: !!ctx.config.anthropicApiKey,
+        openai_configurada: !!ambiente().OPENAI_API_KEY?.trim(),
+        gemini_configurada: !!(ambiente().GEMINI_API_KEY?.trim() || ambiente().GOOGLE_AI_API_KEY?.trim()),
+        email: "previa_e_confirmacao_pela_ponte_existente"
+      });
       if (url.searchParams.get("acao") === "configurar") return json(await configurarEDiagnosticar());
       EdgeRuntime.waitUntil(executarFila(ctx));
       return json({ ok: true }, 202);
