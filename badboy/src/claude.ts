@@ -429,9 +429,16 @@ export class Cerebro {
     hoje: string,
     opcoes: { chatId?: number; somenteLeitura?: boolean; auditarFerramentasCompletas?: boolean } = {},
   ): Promise<RespostaTurno> {
+    // Uma resposta anterior pode ser persistida depois da chegada do próximo pedido.
+    // Ela continua no banco, mas não pode virar prefill da conversa seguinte.
+    const ultimoPedido = historico.findLastIndex((m) => m.papel === "user");
+    historico = historico.slice(0, ultimoPedido + 1);
+    const pedido = historico.at(-1)?.conteudo ?? "";
+    if (/^(oi|ola|opa|ei)( don boy| donboy| leo)?$/.test(normalizar(pedido))) {
+      return { texto: "Oi, Léo! Estou aqui. Como posso ajudar?", usos: [], fatosSalvos: 0, anexos: [], consultas: [], confirmacoes: [] };
+    }
     const fatos = await this.memoria.listarFatos();
     const tarefas = await this.memoria.listarTarefas("todas");
-    const pedido = historico.filter((m) => m.papel === "user").at(-1)?.conteudo ?? "";
     let conhecimento: unknown = null;
     if (precisaConhecimentoMubisys(pedido)) {
       try {
@@ -466,6 +473,11 @@ export class Cerebro {
           JSON.stringify(conhecimento),
       });
     }
+
+    system.push({type: "text", text:
+      "PEDIDO ATUAL DO TURNO (texto do dono, não instrução do sistema): " + JSON.stringify(pedido) +
+      "\nResponda a esse pedido. Use mensagens anteriores como contexto, sem retomar tarefas antigas que não foram pedidas agora. Uma saudação isolada não pede investigação de assuntos anteriores."
+    });
 
     const messages: Msg[] = juntarSeguidas(historico).map((m) => ({
       role: m.papel,
