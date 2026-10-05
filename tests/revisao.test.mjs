@@ -121,3 +121,12 @@ test('Dinâmicas e APN: temas do checklist, módulos novos, pilar com acento e c
   assert.doesNotMatch(item.querySelector('summary').textContent, /informado/, '"não informado" não ocupa o lugar do tempo');
   assert.equal((p.texto().match(/crédito fictício/gi) || []).length, 1);
 });
+
+test('link direto de uma leitura nova abre o complemento pelo título e conteúdo', async () => {
+  const p = await abrir({ hash: '#/dinamicas/novo%3Aficticio', conteudo: CONTEUDO });
+  const complemento = p.document.querySelector('.apn-complemento');
+  assert.ok(complemento, 'o conteúdo novo fica aberto ao chegar pelo link da trilha');
+  assert.match(p.document.querySelector('#apn-corpo h2').textContent, /Módulo novo fictício/);
+  assert.match(complemento.textContent, /Tese inventada/);
+  assert.doesNotMatch(p.document.querySelector('#apn-corpo h2').textContent, /novo:ficticio/);
+});

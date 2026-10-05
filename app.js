@@ -599,7 +599,7 @@ function renderInicio(app) {
     '<button type="button" class="botao" data-ir-marcos>Conferir os próximos marcos</button></div>' +
     '</div>' + frase + '</section>' +
     (m ? '' : avisoHTML('O conteúdo do método (metodo.js) não carregou. Turmas, diagnósticos e planos continuam funcionando; recarregue a página para trazer o método.', 'amarelo')) +
-    '<div class="acoes inicio-acoes"><a class="botao suave" href="#/apresentacao">Abrir a apresentação</a>' +
+    '<div class="acoes inicio-acoes">' + (m ? '<a class="botao" href="#/metodo">Estudar o método, passo a passo</a>' : '') + '<a class="botao suave" href="#/apresentacao">Abrir a apresentação</a>' +
     (podeEditar() ? '<a class="botao suave" href="#/diagnostico/novo">Novo diagnóstico</a><button type="button" class="botao suave" data-nova-turma>Nova turma</button>' : '') +
     '</div>' +
     '<div class="resumo-grade">' + cartaoTurmas + cartaoMarcos + cartaoDiag + '</div>');
@@ -806,7 +806,8 @@ function complementoDoModulo(docs, id) {
   if (!d || !id) return null;
   if (!Array.isArray(d) && typeof d === 'object' && d[id] && typeof d[id] === 'object') return d[id];
   const lista = listaDe(d, ['itens', 'modulos', 'lista']);
-  return lista.find(x => x && typeof x === 'object' && [x.id, x.moduloId, x.modulo].map(String).includes(String(id))) || null;
+  const novo = listaDe(d, ['novos_modulos', 'novosModulos']);
+  return [...lista, ...novo].find(x => x && typeof x === 'object' && [x.id, x.moduloId, x.modulo].map(String).includes(String(id))) || null;
 }
 function tituloDoModulo(id) {
   const m = metodo();
@@ -864,7 +865,7 @@ function pintarApn(docs) {
     // Aberto, sem sanfona: é o que o facilitador veio buscar a partir da sala.
     const c = complementoDoModulo(docs, ESTADO.apn.modulo);
     const fonteC = c ? fmtFonteApn(c.fonte) : '';
-    complemento = '<section class="cartao destaque"><h2>Complemento do módulo: ' + esc(tituloDoModulo(ESTADO.apn.modulo)) + '</h2>' +
+    complemento = '<section class="cartao destaque"><h2>Complemento do módulo: ' + esc(c ? tituloApn(c) || tituloDoModulo(ESTADO.apn.modulo) : tituloDoModulo(ESTADO.apn.modulo)) + '</h2>' +
       (c ? '<div class="apn-complemento">' + (htmlCamposApn(c, indice, 'apn-campo') || '<p class="dica">Sem detalhes.</p>') + (fonteC ? '<p class="fonte">Fonte: ' + esc(fonteC) + '</p>' : '') + '</div>'
         : '<p class="dica">Este módulo ainda não tem complemento do APN carregado.</p>') +
       '<button type="button" class="botao mini fantasma" data-apn-sem-modulo>Fechar o complemento</button></section>';
