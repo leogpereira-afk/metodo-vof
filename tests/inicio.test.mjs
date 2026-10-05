@@ -56,6 +56,7 @@ test('Início: o bloco de propósito abre a tela, antes dos cartões de turmas, 
   assert.doesNotMatch(prop.textContent, TRAVESSOES, 'sem travessão no bloco');
   assert.doesNotMatch(p.texto(), /undefined|NaN|\[object /);
   // As ações de sempre continuam na Início, depois do propósito.
+  assert.ok(p.document.querySelector('.inicio-acoes a[href="#/metodo"]'), 'a trilha de estudo fica fácil de encontrar');
   assert.ok(p.document.querySelector('.inicio-acoes a[href="#/apresentacao"]'));
   assert.ok(p.document.querySelector('.inicio-acoes [data-nova-turma]'));
 });

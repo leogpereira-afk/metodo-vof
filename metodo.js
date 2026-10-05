@@ -1,9 +1,9 @@
 /* Método V.O.F.: o método, a jornada e a sala de apresentação.
  *
  * Porte da tela que morava na Central do Léo (vMetodoVOF, abrirVofApresentacao e
- * companhia, em vida-leo/publico/index.html). Conteúdo e comportamento são os
- * mesmos: quatro abas com teclado, apresentar e aplicar, jornada com XP guardada
- * neste navegador e os visuais do caderno.
+ * companhia, em vida-leo/publico/index.html). Preserva quatro abas com teclado,
+ * apresentar e aplicar, jornada com XP guardada neste navegador e os visuais do
+ * caderno. A entrada de leitura agora segue as cinco partes da edição essencial.
  *
  * AUTOCONTIDO. Traz os próprios utilitários (esc, el), o próprio modal (fundo
  * próprio, Esc fecha, foco preso) e não depende de nada da casca além do
@@ -114,7 +114,7 @@
 
   const IMAGENS = congelar({
     piramide: {src:'./assets/vof/p003.jpg',alt:'Pirâmide invertida do Método V.O.F.: Venda, Operação e Finanças apoiadas por Pessoas e Gestores.',legenda:'A teoria da pirâmide invertida · caderno, p. 3'},
-    vof: {src:'./assets/vof/logo-vof.png',alt:'Logomarca do Método V.O.F.: pirâmide V, O e F com Pessoas e Gestores como base.',legenda:'O que é o V.O.F. · marca e sistema'},
+    vof: {src:'./assets/vof/logo-vof.png',alt:'Logomarca do Método V.O.F.: pirâmide V, O e F sustentada por Pessoas e Gestores.',legenda:'O que é o V.O.F. · marca e sistema'},
     arquitetura: {src:'./assets/vof/p003.jpg',alt:'Pirâmide do Método V.O.F. com Venda, Operação e Finanças sustentadas por Pessoas e Gestores.',legenda:'A arquitetura em uma imagem · caderno, p. 3'},
     conscientizar: {src:'./assets/vof/p001.jpg',alt:'Capa do Caderno de Treinamento do Método V.O.F.',legenda:'O ponto de partida é consciência · caderno, p. 1'},
     ciclo: {src:'./assets/vof/p017.jpg',alt:'Cinco etapas do motor do método: conscientizar, diagnosticar, organizar, capacitar e executar, consolidar.',legenda:'Ver. Organizar. Fazer. E voltar a aprender. · caderno, p. 17'},
@@ -127,7 +127,7 @@
 
   const ABERTURAS = [
     {tipo:'abertura',id:'intro-piramide',nivel:'Abertura',grupo:'Teoria',titulo:'A teoria da pirâmide invertida',tese:'O resultado aparece no topo, mas só permanece quando a base humana, a gestão e a capacidade de entrega sustentam o sistema.',entrega:'Leitura compartilhada da base que sustenta o resultado',evidencias:['Pessoas capazes de aprender e colaborar','Gestores capazes de decidir e sustentar','Venda, Operação e Finanças conectadas'],perguntas:['O que está no topo do negócio e qual base precisa sustentá-lo?','Onde o crescimento está pressionando a base?'],ferramentas:['Pirâmide invertida V.O.F.','Mapa de dependências'],fonte:'Caderno completo · Nível 1 · p. 2 a 5',frase:'Antes de discutir a ferramenta, enxergue o que sustenta o resultado.',visual:'piramide'},
-    {tipo:'abertura',id:'intro-vof',nivel:'Abertura',grupo:'Definição',titulo:'O que é o Método V.O.F.',tese:'V.O.F. conecta Venda, Operação e Finanças em um único sistema, sustentado por Pessoas e Gestores.',entrega:'Definição comum do sistema que será observado e melhorado',evidencias:['Uma promessa que a operação consegue cumprir','Uma entrega que protege a margem e o caixa','Um time que aprende sem depender do dono'],perguntas:['Que promessa, entrega e número precisam conversar melhor?','Qual decisão hoje atravessa as três áreas?'],ferramentas:['Mapa Venda → Operação → Finanças','Pessoas e Gestores como base'],fonte:'Caderno completo · Nível 1 · p. 2 a 5',frase:'V.O.F. não é uma sigla para decorar; é um sistema para enxergar, decidir e sustentar.',visual:'vof'}
+    {tipo:'abertura',id:'intro-vof',nivel:'Abertura',grupo:'Definição',titulo:'O que é o Método V.O.F.',tese:'V.O.F. conecta Venda, Operação e Finanças em um único sistema, sustentado por Pessoas e Gestores.',entrega:'Definição comum do sistema que será observado e melhorado',evidencias:['Uma promessa que a operação consegue cumprir','Uma entrega que protege a margem e o caixa','Um time que aprende sem depender do dono'],perguntas:['Que promessa, entrega e número precisam conversar melhor?','Qual decisão hoje atravessa as três áreas?'],ferramentas:['Mapa Venda → Operação → Finanças','Pessoas e Gestores como apoios'],fonte:'Caderno completo · Nível 1 · p. 2 a 5',frase:'V.O.F. não é uma sigla para decorar; é um sistema para enxergar, decidir e sustentar.',visual:'vof'}
   ];
   const APRESENTACAO = congelar([...ABERTURAS, ...MODULOS]);
 
@@ -475,6 +475,86 @@
     return g;
   }
   const secao = (titulo, descricao) => el(`<div class="vof-section-head"><div><h2>${esc(titulo)}</h2><p>${esc(descricao)}</p></div></div>`);
+  // Síntese de orientação, não uma cópia da apostila. As cinco partes seguem a
+  // edição essencial e apontam para os módulos já publicados neste sistema.
+  const PARTES_GUIADAS = congelar([
+    { id: 'metodo', numero: '01', nome: 'O método', chamada: 'Enxergar o negócio inteiro antes de corrigir um pedaço.', pergunta: 'Em que ponto a promessa ao cliente deixa de virar entrega ou dinheiro?', exemplo: 'Um pedido foi vendido com prazo, chegou incompleto à produção e o recebimento ficou para depois. A dificuldade atravessa três áreas, não cabe em uma pessoa só.', passo: 'Escolha um pedido real. Anote o que foi prometido, o que foi entregue e quando o dinheiro entrou. Feche uma melhoria com decisão, dono, data e dado.', prova: 'Um fluxo simples do pedido e um compromisso que possa ser conferido na próxima reunião.', cuidado: 'Muitos indicadores separados podem esconder o mesmo pedido atravessando a empresa.', insight: 'Comece pela restrição que mais trava o fluxo, não por uma lista de 25 correções ao mesmo tempo.', temas: ['Pirâmide e cinco dimensões', 'Ver, Organizar, Fazer e 4D', 'Diagnóstico com evidências', 'Um foco por ciclo de 90 dias'], modulos: ['arquitetura', 'conscientizar', 'ciclo', 'diagnostico', '90dias'] },
+    { id: 'pessoas', numero: '02', nome: 'Pessoas e gestores', chamada: 'Criar clareza para a empresa funcionar além do dono.', pergunta: 'O que para quando você não está presente?', exemplo: 'A equipe espera uma autorização para uma decisão repetida. Falta um limite combinado, não mais cobrança.', passo: 'Escolha uma decisão que volta toda semana. Escreva quem decide, até qual limite e quando deve trazer o assunto para você.', prova: 'Um combinado entendido pelo time e testado durante uma semana.', cuidado: 'Delegar só a tarefa, sem autoridade ou critério, mantém a decisão nas mãos do dono.', insight: 'Ensine a decidir usando um caso real e confira o resultado depois, em vez de medir treinamento apenas por presença.', temas: ['Consciência e papel do dono', 'Papéis, aprendizagem e respeito', 'Cultura e comunicação como prática', 'Sócios, família e sucessão com alçadas claras'], modulos: ['times', 'pessoas', 'gestores', 'dono', 'pessoas2', 'gestores2', 'dinamicas'] },
+    { id: 'venda', numero: '03', nome: 'Venda', chamada: 'Prometer o que o cliente valoriza e a empresa consegue cumprir.', pergunta: 'O prazo e a condição vendidos foram validados por quem vai entregar e receber?', exemplo: 'O comercial fecha um pedido urgente sem consultar a fila. O cliente espera, a operação corre e a margem diminui.', passo: 'Pegue uma proposta recente. Confira prazo, capacidade, margem e forma de recebimento com as áreas envolvidas.', prova: 'Uma regra de promessa validada antes da próxima proposta.', cuidado: 'Um pedido assinado ainda não é entrega, margem preservada nem dinheiro no caixa.', insight: 'O melhor momento para evitar retrabalho e aperto de caixa é antes de prometer prazo e condição.', temas: ['Cliente e carteira', 'Promessa possível e margem', 'Estratégia de mercado: onde jogar e por quê'], modulos: ['venda', 'venda2'] },
+    { id: 'operacao', numero: '04', nome: 'Operação', chamada: 'Transformar o combinado em entrega confiável.', pergunta: 'Onde o trabalho espera, volta ou perde qualidade?', exemplo: 'Uma tarefa volta para correção e ocupa a mesma equipe duas vezes. Contratar mais gente antes de entender a causa só esconde a perda.', passo: 'Acompanhe uma entrega do início ao fim. Marque a espera mais longa e um retrabalho; teste uma correção pequena.', prova: 'Prazo e retrabalho medidos antes e depois do teste.', cuidado: 'Equipe ocupada o dia inteiro não prova que os pedidos estejam avançando.', insight: 'Acompanhe a passagem entre etapas: a fila e as voltas costumam mostrar mais que a velocidade de uma pessoa.', temas: ['Fluxo da promessa à entrega', 'Gargalo e padrão de trabalho', 'Crescer com eficiência antes de ampliar estrutura'], modulos: ['operacao', 'operacao2'] },
+    { id: 'financas', numero: '05', nome: 'Finanças', chamada: 'Saber se vender e entregar estão produzindo caixa e escolha.', pergunta: 'O que foi vendido já virou recebimento, e o que de fato sobrou?', exemplo: 'O faturamento cresce, mas fornecedores vencem antes de os clientes pagarem. Lucro e saldo no banco contam histórias diferentes.', passo: 'Separe, para um período recente, valor vendido, recebido e gasto. Depois olhe as próximas semanas de caixa.', prova: 'Uma leitura semanal com recebimentos, pagamentos e a semana de menor saldo.', cuidado: 'Lucro apurado e saldo disponível respondem a perguntas diferentes; um não substitui o outro.', insight: 'Olhe o caixa futuro antes de conceder um prazo de venda ou assumir um gasto fixo.', temas: ['Venda, recebimento, lucro e caixa', 'Previsão de 13 semanas', 'Teto de gasto e decisões antes do vencimento'], modulos: ['financas', 'financas2'] }
+  ]);
+  // Temas que a edição essencial desenvolve além dos 18 módulos da sala.
+  // Cada nota é uma orientação original de estudo, sem reproduzir a apostila.
+  const LEITURAS_COMPLEMENTARES = congelar({
+    metodo: [
+      { titulo: 'Facilitar sem dar uma palestra', ideia: 'Abra com um caso da empresa, peça fatos e deixe a equipe formular a primeira hipótese. Termine com um compromisso que poderá ser visto na rotina.' },
+      { titulo: 'Mentoria que devolve a decisão', ideia: 'Uma boa pergunta ajuda o dono a enxergar o problema e escolher o próximo teste. Não troca a responsabilidade dele por uma resposta pronta.' }
+    ],
+    pessoas: [
+      { titulo: 'O comportamento do dono ensina', ideia: 'O time observa o que o dono tolera e faz. Escolha um combinado que você mesmo precisa cumprir antes de cobrá-lo dos outros.' },
+      { titulo: 'Visão e propósito dão direção', ideia: 'Escreva que empresa e que vida você deseja construir. Use essa visão para escolher o que fazer e também o que recusar.' },
+      { titulo: 'Hábitos tornam a cultura visível', ideia: 'Troque valores genéricos por comportamentos que alguém consiga observar, ensinar e reconhecer no trabalho.' },
+      { titulo: 'Sócios e sucessão começam no topo', ideia: 'Antes de distribuir metas, alinhem funções, limites de decisão e um caminho para a próxima liderança. O acordo protege a empresa e as relações.', complemento: 'novo:socios-e-sucessao' },
+      { titulo: 'Comunicação precisa ser compreendida', ideia: 'Enviar um recado não prova entendimento. Peça à pessoa que mostre como fará a tarefa e ajuste o combinado quando houver dúvida.', complemento: 'novo:cultura-e-comunicacao' }
+    ],
+    venda: [
+      { titulo: 'Estratégia de mercado vem antes de estrutura', ideia: 'Escolha a quem servir, qual problema resolver e como ser diferente aos olhos do cliente. Só então decida onde investir em gente, estoque ou capacidade.', complemento: 'novo:estrategia-e-mercado' }
+    ],
+    operacao: [
+      { titulo: 'Crescer certo antes de crescer rápido', ideia: 'Use prazo, qualidade e capacidade para avaliar o limite real. Corrija o fluxo e teste a demanda antes de ampliar espaço ou contratar por impulso.' }
+    ],
+    financas: []
+  });
+  function trilhaLeitura(opc) {
+    const tituloId = uid();
+    const sec = el(`<section class="vof-guided" aria-labelledby="${tituloId}"><div class="vof-guided-head"><span class="vof-eyebrow">Trilha de leitura</span><h2 id="${tituloId}">Cinco partes. Uma decisão de cada vez.</h2><p>Escolha a parte que conversa com a sua empresa hoje. Leia a pergunta, veja um exemplo e teste só um próximo passo. O restante pode esperar.</p></div><div class="vof-guided-steps" role="group" aria-label="Escolher parte do método"></div><p class="vof-guided-swipe">Deslize para ver as cinco partes.</p><article class="vof-guided-content" aria-label="Parte selecionada"><div class="vof-guided-main"><span class="vof-guided-number" data-vof-parte-numero></span><h3 data-vof-parte-titulo aria-live="polite"></h3><p class="vof-guided-lead" data-vof-parte-chamada></p><div class="vof-guided-prompt"><b>Pergunta para começar</b><p data-vof-parte-pergunta></p></div><div class="vof-guided-example"><b>Imagine esta situação</b><p data-vof-parte-exemplo></p></div></div><div class="vof-guided-aside"><div><b>Primeiro passo</b><p data-vof-parte-passo></p></div><div><b>Como saber se andou</b><p data-vof-parte-prova></p></div><div><b>Cuidado com este atalho</b><p data-vof-parte-cuidado></p></div><div><b>Pulo do gato</b><p data-vof-parte-insight></p></div><div><b>Para aprofundar</b><ul data-vof-parte-temas></ul></div></div></article><details class="vof-guided-depth"><summary data-vof-parte-complemento></summary><div data-vof-parte-leituras></div></details><div class="vof-guided-footer"><div class="vof-guided-module-area"><b>Módulos relacionados</b><div class="vof-guided-modules" data-vof-parte-modulos aria-label="Módulos relacionados"></div></div><button type="button" class="vof-btn ghost" data-vof-parte-apostila>Abrir a apostila</button></div><p class="vof-guided-source">Roteiro de estudo inspirado nas cinco partes da edição essencial do Método V.O.F. Os exemplos são ilustrativos; use os dados da sua empresa para decidir.</p></section>`);
+    const botoes = sec.querySelector('.vof-guided-steps');
+    const modulos = sec.querySelector('[data-vof-parte-modulos]');
+    PARTES_GUIADAS.forEach(parte => {
+      const b = el(`<button type="button" class="vof-guided-step" data-vof-parte="${esc(parte.id)}" aria-pressed="false"><span>${esc(parte.numero)}</span><b>${esc(parte.nome)}</b></button>`);
+      b.onclick = () => selecionar(parte.id);
+      botoes.appendChild(b);
+    });
+    function selecionar(id) {
+      const parte = PARTES_GUIADAS.find(p => p.id === id) || PARTES_GUIADAS[0];
+      botoes.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.vofParte === parte.id)));
+      for (const [campo, valor] of Object.entries({ numero: `PARTE ${parte.numero} / 05`, titulo: parte.nome, chamada: parte.chamada, pergunta: parte.pergunta, exemplo: parte.exemplo, passo: parte.passo, prova: parte.prova, cuidado: parte.cuidado, insight: parte.insight })) {
+        sec.querySelector(`[data-vof-parte-${campo}]`).textContent = valor;
+      }
+      const temas = sec.querySelector('[data-vof-parte-temas]');
+      temas.replaceChildren(...parte.temas.map(tema => { const li = doc().createElement('li'); li.textContent = tema; return li; }));
+      const extras = LEITURAS_COMPLEMENTARES[parte.id] || [];
+      const profundidade = sec.querySelector('.vof-guided-depth');
+      profundidade.open = false;
+      profundidade.hidden = extras.length === 0;
+      sec.querySelector('[data-vof-parte-complemento]').textContent = `Outras ideias desta parte (${extras.length})`;
+      const lista = sec.querySelector('[data-vof-parte-leituras]');
+      lista.replaceChildren(...extras.map(item => {
+        const card = el('<article class="vof-guided-note"><h4></h4><p></p></article>');
+        card.querySelector('h4').textContent = item.titulo;
+        card.querySelector('p').textContent = item.ideia;
+        if (item.complemento && typeof opc.abrirComplemento === 'function') {
+          const abrir = el('<button type="button" class="vof-guided-complement">Abrir complemento no sistema →</button>');
+          abrir.onclick = () => chamarComplemento(opc, item.complemento, 'trilha');
+          card.appendChild(abrir);
+        }
+        return card;
+      }));
+      modulos.replaceChildren();
+      parte.modulos.forEach(idModulo => {
+        const indice = MODULOS.findIndex(m => m.id === idModulo);
+        if (indice < 0) return;
+        const mod = MODULOS[indice];
+        const b = el(`<button type="button" class="vof-guided-module">${esc(mod.titulo)} <span aria-hidden="true">→</span></button>`);
+        b.onclick = () => abrirApresentacao(ABERTURAS.length + indice);
+        modulos.appendChild(b);
+      });
+    }
+    sec.querySelector('[data-vof-parte-apostila]').onclick = () => abrirApostila('trilha');
+    selecionar(PARTES_GUIADAS[0].id);
+    return sec;
+  }
   function referencia(ref) {
     // O caderno completo não é mais um link para um PDF que nunca foi publicado:
     // é a apostila, que a casca abre para quem tem crachá.
@@ -837,24 +917,30 @@
     Object.values(panes).forEach(x => m.appendChild(x));
     m.appendChild(el('<p class="vof-aviso" role="status" aria-live="polite"></p>'));
 
-    /* Visão geral: a mesma ordem final que a Central montava (capa, guia de
-       leitura, abertura, números, jornada, seis primeiros módulos e o
-       "explorar por dentro" recolhido no fim). */
-    const hero = el('<section class="vof-hero vof-cover"><div class="vof-cover-main"><div class="vof-brand-line"><img class="vof-author-logo" src="./assets/vof/logo-leonardo-goncalves.png" alt="Leonardo Gonçalves"><span class="vof-brand-rule"></span><span class="vof-brand-name">MÉTODO V.O.F.</span></div><span class="vof-eyebrow">Formação em gestão e desenvolvimento · Níveis 1 e 2</span><h2>Um negócio conectado.<br>Uma equipe capaz.<br><em>Um resultado que fica.</em></h2><p>Conecte a promessa da venda, a entrega da operação e a realidade do caixa. Desenvolva pessoas e gestores para que a empresa funcione além do dono.</p><div class="vof-cover-pillars" aria-label="Os três pilares"><span>V <b>Venda</b></span><span>O <b>Operação</b></span><span>F <b>Finanças</b></span></div><div class="vof-hero-actions"><button type="button" class="vof-btn" data-vof-apresentar>Começar apresentação →</button><button type="button" class="vof-btn ghost" data-vof-caderno>Abrir a apostila completa</button></div></div><div class="vof-cover-figure vof-mark-figure"><img src="./assets/vof/logo-vof.png" alt="Logomarca do Método V.O.F.: pirâmide V, O e F com Pessoas e Gestores como base." loading="eager"></div></section>');
+    /* Primeiro um caminho de leitura para o empresário; sala, aplicação e
+       biblioteca continuam disponíveis sem competir com o primeiro passo. */
+    const hero = el('<section class="vof-hero vof-cover"><div class="vof-cover-main"><div class="vof-brand-line"><img class="vof-author-logo" src="./assets/vof/logo-leonardo-goncalves.png" alt="Leonardo Gonçalves"><span class="vof-brand-rule"></span><span class="vof-brand-name">MÉTODO V.O.F.</span></div><span class="vof-eyebrow">Formação em gestão e desenvolvimento · Níveis 1 e 2</span><h2>Um negócio conectado.<br>Uma equipe capaz.<br><em>Um resultado que fica.</em></h2><p>Conecte a promessa da venda, a entrega da operação e a realidade do caixa. Desenvolva pessoas e gestores para que a empresa funcione além do dono.</p><div class="vof-cover-pillars" aria-label="Os três pilares"><span>V <b>Venda</b></span><span>O <b>Operação</b></span><span>F <b>Finanças</b></span></div><div class="vof-hero-actions"><button type="button" class="vof-btn" data-vof-ir-trilha>Começar pela trilha</button><button type="button" class="vof-btn ghost" data-vof-apresentar>Abrir apresentação</button><button type="button" class="vof-btn ghost" data-vof-caderno>Abrir a apostila</button></div></div><div class="vof-cover-figure vof-mark-figure"><img src="./assets/vof/logo-vof.png" alt="Logomarca do Método V.O.F.: pirâmide V, O e F sustentada por Pessoas e Gestores." loading="eager"></div></section>');
+    hero.querySelector('[data-vof-ir-trilha]').onclick = () => {
+      const alvo = m.querySelector('.vof-guided');
+      if (alvo && typeof alvo.scrollIntoView === 'function') alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (alvo) focar(alvo.querySelector('.vof-guided-step'));
+    };
     hero.querySelector('[data-vof-apresentar]').onclick = () => abrirApresentacao(0);
     hero.querySelector('[data-vof-caderno]').onclick = () => abrirApostila('capa');
     panes.visao.appendChild(hero);
-    panes.visao.appendChild(el('<section class="vof-reading-guide"><div><span class="vof-eyebrow">Como usar esta aba</span><h2>Escolha como usar o método.</h2><p>Apresente uma ideia por vez. Depois, abra o modo Aplicar para escolher um próximo passo e registrar o que vai comprovar a mudança.</p></div><div class="vof-reading-rule"><b>Apresentar</b><span>Use a sala de apresentação para conduzir a conversa.</span><b>Aplicar</b><span>Use o módulo e o caderno para fazer no trabalho.</span><b>Verificar</b><span>Retorne ao diagnóstico para comparar o que mudou.</span></div></section>'));
-    const abertura = el('<section class="vof-opening"><div class="vof-section-head"><div><span class="vof-eyebrow">A primeira conversa</span><h2>Primeiro, entenda o que sustenta o resultado.</h2><p>Duas ideias abrem a conversa: a base humana sustenta o negócio; Venda, Operação e Finanças precisam funcionar juntas.</p></div><button type="button" class="vof-btn ghost" data-vof-abertura>▶ Apresentar esta abertura</button></div><div class="vof-opening-grid"><article><span class="vof-opening-number">01 · TEORIA</span><h3>A pirâmide invertida</h3><p>O resultado aparece no topo, mas depende da base: Pessoas e Gestores sustentam Venda, Operação e Finanças.</p><b>Primeiro: enxergar o que sustenta.</b></article><article><span class="vof-opening-number">02 · DEFINIÇÃO</span><h3>O que é o V.O.F.</h3><p>Venda, Operação e Finanças não são assuntos isolados. São um único sistema que precisa prometer, entregar e cuidar do caixa.</p><b>Depois: dar nome ao sistema.</b></article></div></section>');
-    abertura.querySelector('[data-vof-abertura]').onclick = () => abrirApresentacao(0);
-    panes.visao.appendChild(abertura);
-    panes.visao.appendChild(el(`<div class="vof-metrics">${kpi('Módulos', MODULOS.length, 'Níveis 1 e 2', 'v')}${kpi('Práticas N1', PRATICAS.length, 'cinco dimensões', null)}${kpi('Ciclos', '90 → 180', 'dias de implantação', 'a')}${kpi('Ponto de partida', 'Ação', 'não só conteúdo', 'v')}</div>`));
-    panes.visao.appendChild(jornadaPainel(m));
-    panes.visao.appendChild(secao('Comece por uma pergunta', 'Os seis primeiros módulos ajudam a abrir uma conversa sem transformar o método em palestra passiva.'));
-    panes.visao.appendChild(moduloGrid(MODULOS.slice(0, 6)));
-
-    const aprofundar = el('<details class="vof-overview-details"><summary>Explorar o método por dentro <span>Imagens, cinco dimensões, ciclo e implantação</span></summary><div data-vof-aprofundar></div></details>');
+    panes.visao.appendChild(el('<section class="vof-reading-guide"><div><span class="vof-eyebrow">Um convite para começar</span><h2>Você não precisa resolver a empresa inteira hoje.</h2><p>Comece por uma situação que realmente aconteceu. Entenda a ligação entre as áreas, escolha uma mudança pequena e volte a ela na próxima semana.</p></div><div class="vof-reading-rule"><b>1 · Observe</b><span>O que foi prometido, feito e recebido? Separe fatos de impressões.</span><b>2 · Escolha</b><span>Qual é o ponto que mais limita o resultado agora?</span><b>3 · Combine</b><span>Feche com decisão, dono, data e dado. Depois confira o que mudou.</span></div></section>'));
+    panes.visao.appendChild(trilhaLeitura(opc));
+    const aprofundar = el('<details class="vof-overview-details"><summary>Explorar o método por dentro <span>Ideias centrais, módulos, imagens e implantação</span></summary><div data-vof-aprofundar></div></details>');
     const dentro = aprofundar.querySelector('[data-vof-aprofundar]');
+    const abertura = el('<section class="vof-opening"><div class="vof-section-head"><div><span class="vof-eyebrow">A primeira conversa</span><h2>Primeiro, entenda o que sustenta o resultado.</h2><p>Duas ideias abrem a conversa: Pessoas e Gestores sustentam o negócio; Venda, Operação e Finanças precisam funcionar juntas.</p></div><button type="button" class="vof-btn ghost" data-vof-abertura>▶ Apresentar esta abertura</button></div><div class="vof-opening-grid"><article><span class="vof-opening-number">01 · TEORIA</span><h3>A pirâmide invertida</h3><p>O resultado aparece no topo. Pessoas e Gestores sustentam, pelos lados, Venda, Operação e Finanças.</p><b>Primeiro: enxergar o que sustenta.</b></article><article><span class="vof-opening-number">02 · DEFINIÇÃO</span><h3>O que é o V.O.F.</h3><p>Venda, Operação e Finanças não são assuntos isolados. São um único sistema que precisa prometer, entregar e cuidar do caixa.</p><b>Depois: dar nome ao sistema.</b></article></div></section>');
+    abertura.querySelector('[data-vof-abertura]').onclick = () => abrirApresentacao(0);
+    const progresso = el('<details class="vof-journey-details"><summary>Quando estiver pronto, registre sua aplicação <span>Missões e progresso guardados neste navegador</span></summary></details>');
+    progresso.appendChild(jornadaPainel(m));
+    panes.visao.appendChild(progresso);
+    dentro.appendChild(abertura);
+    dentro.appendChild(el(`<div class="vof-metrics">${kpi('Módulos', MODULOS.length, 'Níveis 1 e 2', 'v')}${kpi('Práticas N1', PRATICAS.length, 'cinco dimensões', null)}${kpi('Ciclos', '90 → 180', 'dias de implantação', 'a')}${kpi('Ponto de partida', 'Ação', 'não só conteúdo', 'v')}</div>`));
+    dentro.appendChild(secao('Primeiros módulos', 'Abra um tema de cada vez. A trilha acima ajuda a escolher por onde entrar.'));
+    dentro.appendChild(moduloGrid(MODULOS.slice(0, 6)));
     const visuais = el('<section class="vof-visuals"><div class="vof-section-head"><div><span class="vof-eyebrow">O caderno em imagens</span><h2>Veja a lógica antes de entrar nos detalhes.</h2><p>As páginas abaixo funcionam como âncoras visuais para apresentação. Clique em um módulo para abrir a síntese completa.</p></div></div><div class="vof-visual-grid"></div></section>');
     [['arquitetura', 'A arquitetura', 'A promessa, a entrega e o caixa precisam conversar.', 'Uma imagem para explicar o todo.'], ['ciclo', 'O motor', 'Cinco movimentos para transformar conhecimento em prática.', 'Uma sequência para facilitar sem virar palestra.'], ['diagnostico', 'A evidência', 'Pontuar só faz sentido quando a prática pode ser demonstrada.', 'Uma régua para decidir o próximo passo.'], ['gestores2', 'O compromisso', 'A maturidade aparece quando o método continua aprendendo.', 'O fechamento devolve a responsabilidade ao sistema.']]
       .forEach(([id, titulo, texto, sub]) => visuais.querySelector('.vof-visual-grid').appendChild(visualCard(Object.assign({}, IMAGENS[id], { titulo, texto: sub }), id)));
@@ -872,7 +958,7 @@
     dentro.appendChild(princ);
     dentro.appendChild(secao('Ritmo de implantação', 'O primeiro ciclo instala padrão e indicador; o segundo consolida autonomia e multiplicação.'));
     const timeline = el('<div class="vof-timeline"></div>');
-    [['0 a 30', 'Ver', 'linha de base, foco e primeiro padrão'], ['31 a 60', 'Organizar', 'acompanhar, ensinar e ajustar'], ['61 a 90', 'Consolidar', 'verificar efeito e formar autonomia'], ['91 a 180', 'Multiplicar', 'calibrar, delegar e espalhar o método']].forEach(x => timeline.appendChild(el(`<article><b>DIAS ${x[0]} · ${x[1]}</b><span>${x[2]}</span></article>`)));
+    [['1 a 30', 'Ver e organizar', 'linha de base, foco, responsáveis e decisões 4D'], ['31 a 60', 'Capacitar e executar', 'ensinar, testar e acompanhar no trabalho'], ['61 a 90', 'Estabilizar e consolidar', 'testar com substituto e comparar evidências'], ['91 a 180', 'Multiplicar', 'calibrar, delegar e espalhar o método']].forEach(x => timeline.appendChild(el(`<article><b>DIAS ${x[0]} · ${x[1]}</b><span>${x[2]}</span></article>`)));
     dentro.appendChild(timeline);
     panes.visao.appendChild(aprofundar);
 

@@ -218,16 +218,60 @@ test('render desenha as quatro abas e navega por teclado', () => {
   assert.deepEqual([...document.querySelectorAll('.vof-architecture b')].map(x => x.textContent), ['Venda', 'Operação', 'Finanças', 'Pessoas', 'Gestores']);
 });
 
-test('visão geral mantém a ordem final da Central', () => {
+test('visão geral começa pela leitura guiada e preserva a biblioteca e a jornada', () => {
   const { V, app, document } = montar();
   V.render(app, { cabecalho: false });
   assert.equal(document.querySelector('.vof-topo'), null);
   const visao = document.querySelector('[role=tabpanel]');
   const ordem = [...visao.children].map(x => x.className.split(' ').find(c => c.startsWith('vof-')));
-  assert.deepEqual(ordem, ['vof-hero', 'vof-reading-guide', 'vof-opening', 'vof-metrics', 'vof-journey', 'vof-section-head', 'vof-module-grid', 'vof-overview-details']);
+  assert.deepEqual(ordem, ['vof-hero', 'vof-reading-guide', 'vof-guided', 'vof-journey-details', 'vof-overview-details']);
+  assert.ok(visao.querySelector('.vof-journey-details .vof-journey'));
   const dentro = [...visao.querySelector('[data-vof-aprofundar]').children].map(x => x.className);
-  assert.deepEqual(dentro, ['vof-visuals', 'vof-section-head', 'vof-architecture', 'vof-section-head', 'vof-cycle', 'vof-principles', 'vof-section-head', 'vof-timeline']);
+  assert.deepEqual(dentro, ['vof-opening', 'vof-metrics', 'vof-section-head', 'vof-module-grid', 'vof-visuals', 'vof-section-head', 'vof-architecture', 'vof-section-head', 'vof-cycle', 'vof-principles', 'vof-section-head', 'vof-timeline']);
   assert.equal(visao.querySelectorAll('.vof-module-grid .vof-module-card').length, 6);
+});
+
+test('trilha explica as cinco partes, atualiza a pergunta e abre o módulo relacionado', () => {
+  const { V, app, document } = montar();
+  V.render(app);
+  const passos = [...document.querySelectorAll('.vof-guided-step')];
+  assert.deepEqual(passos.map(p => p.textContent.trim()), ['01O método', '02Pessoas e gestores', '03Venda', '04Operação', '05Finanças']);
+  document.querySelector('[data-vof-ir-trilha]').click();
+  assert.equal(document.activeElement, passos[0], 'o convite inicial leva o foco à trilha');
+  assert.equal(passos[0].getAttribute('aria-pressed'), 'true');
+  assert.match(document.querySelector('[data-vof-parte-passo]').textContent, /decisão, dono, data e dado/);
+  passos[1].click();
+  assert.equal(passos[1].getAttribute('aria-pressed'), 'true');
+  assert.equal(passos[0].getAttribute('aria-pressed'), 'false');
+  assert.match(document.querySelector('[data-vof-parte-temas]').textContent, /Sócios, família e sucessão/);
+  const relacionados = passos.flatMap(p => {
+    p.click();
+    return [...document.querySelectorAll('.vof-guided-module')].map(b => b.textContent.replace('→', '').trim());
+  });
+  assert.deepEqual(new Set(relacionados), new Set(V.MODULOS.map(m => m.titulo)), 'nenhum módulo fica sem uma parte do roteiro');
+  passos[4].click();
+  assert.match(document.querySelector('[data-vof-parte-pergunta]').textContent, /virou recebimento/);
+  assert.match(document.querySelector('[data-vof-parte-temas]').textContent, /13 semanas/);
+  assert.match(document.querySelector('[data-vof-parte-cuidado]').textContent, /Lucro apurado e saldo disponível/);
+  assert.match(document.querySelector('[data-vof-parte-insight]').textContent, /caixa futuro/);
+  document.querySelector('.vof-guided-module').click();
+  assert.equal(document.querySelector('.modal-vof [data-titulo]').textContent, 'Finanças: decidir pelo que sobra');
+  V.fecharApresentacao();
+  assert.equal(document.querySelector('.modal-vof'), null);
+});
+
+test('leituras complementares abrem o módulo novo na área restrita', () => {
+  const { V, app, document } = montar();
+  const chamados = [];
+  V.render(app, { abrirComplemento: id => chamados.push(id) });
+  document.querySelector('[data-vof-parte="pessoas"]').click();
+  const notas = [...document.querySelectorAll('.vof-guided-note')];
+  assert.equal(notas.length, 5);
+  notas.find(n => n.textContent.includes('Sócios e sucessão')).querySelector('button').click();
+  notas.find(n => n.textContent.includes('Comunicação')).querySelector('button').click();
+  document.querySelector('[data-vof-parte="venda"]').click();
+  document.querySelector('.vof-guided-note button').click();
+  assert.deepEqual(chamados, ['novo:socios-e-sucessao', 'novo:cultura-e-comunicacao', 'novo:estrategia-e-mercado']);
 });
 
 test('a aba escolhida é lembrada entre desenhos e pode vir da casca', () => {
