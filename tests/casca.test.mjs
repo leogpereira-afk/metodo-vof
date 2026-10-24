@@ -541,6 +541,149 @@ test('comparação com N/A: denominador ajustado e "comparabilidade limitada" na
   assert.ok(nota);
   assert.match(nota.textContent, /Linha de base: N\/A em V1\./);
   assert.match(nota.textContent, /Caderno p\. 31/);
+  // No celular a tabela vira cartões e cada célula leva o próprio cabeçalho.
+  const rotulos = [...tabela.querySelectorAll('tbody tr:first-child td')].map(td => td.getAttribute('data-rotulo'));
+  assert.deepEqual(rotulos, ['Linha de base', 'Dia 90', 'Diferença']);
+});
+
+/* ───────────── editor do diagnóstico: régua compacta, andamento e referência ───────────── */
+const notasTodas = n => Object.fromEntries(['v', 'o', 'f', 'p', 'g'].flatMap(l => [1, 2, 3, 4, 5].map(i => [l + i, { nota: n, evidencia: 'Evidência fictícia' }])));
+
+test('diagnóstico: a régua mostra só o requisito da nota marcada, e a régua inteira fica em "Como dar a nota"', async () => {
+  const p = await abrir({ metodo: 'real' });
+  await p.irPara('#/diagnostico/novo');
+  const v1 = p.document.querySelector('.pratica[data-pratica="v1"]');
+  // Seis alvos, com nome curto visível e o requisito inteiro só para o leitor de tela.
+  const curtos = [...v1.querySelectorAll('.nivel strong')].map(s => s.textContent);
+  assert.deepEqual(curtos, ['Ausente', 'Definido', 'Executado', 'Controlado', 'Aprimorado', 'Não se aplica']);
+  assert.ok([...v1.querySelectorAll('.nivel small')].every(s => s.classList.contains('sr')), 'o requisito não ocupa espaço na tela');
+  const detalhe = v1.querySelector('[data-detalhe="v1"]');
+  assert.match(detalhe.textContent, /Sem nota \(ND\)/);
+  marcarNota(p, 'v1', 3);
+  assert.match(detalhe.textContent, /^3 Controlado\. Além de 2: indicador, meta e análise/);
+  marcarNota(p, 'v1', 'na');
+  assert.match(detalhe.textContent, /^N\/A\. Inaplicável aqui/);
+  p.evento(v1.querySelector('[data-limpar="v1"]'), 'click');
+  assert.match(detalhe.textContent, /Sem nota \(ND\)/);
+  // A régua completa, uma vez só, no cartão de ajuda.
+  const ajuda = p.document.querySelector('.regua-ajuda');
+  const niveis = [...ajuda.querySelectorAll('.regua-niveis li')].map(li => li.textContent);
+  assert.equal(niveis.length, 5);
+  assert.match(niveis[4], /^4 Aprimorado e autônomo\. Além de 3/);
+  // Evidência é área de texto que cresce, não linha única.
+  assert.equal(p.document.querySelector('[data-evidencia="v1"]').tagName.toLowerCase(), 'textarea');
+});
+
+test('diagnóstico: andamento por dimensão na barra fixa, no painel e na legenda de cada bloco', async () => {
+  const p = await abrir({ metodo: 'real' });
+  await p.irPara('#/diagnostico/novo');
+  const chips = () => [...p.document.querySelectorAll('[data-dims-barra] .dim-pulo')].map(b => b.textContent.replace(/\s+/g, ''));
+  assert.deepEqual(chips(), ['V0/5', 'O0/5', 'F0/5', 'P0/5', 'G0/5']);
+  assert.equal(p.document.querySelector('[data-progresso]').textContent, '0 de 25 pontuadas · Geral: em aberto');
+  for (const id of ['v1', 'v2', 'v3', 'v4']) marcarNota(p, id, 2);
+  marcarNota(p, 'v5', 'na');
+  assert.equal(chips()[0], 'V5/5', 'N/A conta como marcada');
+  assert.ok(p.document.querySelector('[data-dims-barra] .dim-pulo[data-ir-dim="venda"]').classList.contains('feita'));
+  assert.equal(p.document.querySelector('[data-dim-contagem="venda"]').textContent, '5 de 5');
+  assert.equal(p.document.querySelector('[data-dims-lado] .dim-pulo[data-ir-dim="venda"]').textContent.replace(/\s+/g, ''), 'V5/5', 'o painel ao lado mostra o mesmo');
+  assert.equal(p.document.querySelector('[data-progresso]').textContent, '5 de 25 pontuadas · Geral: em aberto');
+  assert.match(p.document.querySelector('[data-cobertura]').textContent, /Cobertura: 17% \(4 de 24 aplicáveis pontuadas\)/);
+  assert.equal(p.document.querySelectorAll('[data-diag-form] button[type=submit]').length, 2, 'salvar no painel e na barra fixa');
+});
+
+test('diagnóstico novo: momento é o próximo da sequência do alvo, e trocar o alvo refaz a escolha', async () => {
+  const dados = DADOS();
+  dados.diagnosticos = [
+    { id: 'd-base', alvoTipo: 'turma', alvoId: 't-norte', momento: 'linha_de_base', data: '2026-09-02', avaliador: 'A', notas: notasTodas(1), obs: '' },
+    { id: 'd-30', alvoTipo: 'turma', alvoId: 't-norte', momento: 'dia_30', data: '2026-10-02', avaliador: 'A', notas: notasTodas(2), obs: '' },
+  ];
+  const p = await abrir({ servidor: servidorFalso({ dados }), metodo: 'real' });
+  p.run("ESTADO.diag.alvo = 'turma:t-norte'");
+  await p.irPara('#/diagnostico/novo');
+  assert.equal(p.run('ESTADO.diag.rascunho.momento'), 'dia_60', 'base e dia 30 já existem: o próximo é o dia 60');
+  escolherAlvo(p, 'turma:t-sul');
+  assert.equal(p.run('ESTADO.diag.rascunho.momento'), 'linha_de_base', 'turma sem diagnóstico começa pela linha de base');
+  assert.ok(p.document.querySelector('[data-campo="momento"] option[value="linha_de_base"]').hasAttribute('selected'));
+  // Escolher o momento à mão vence a sequência.
+  const sel = p.document.querySelector('[data-campo="momento"]');
+  sel.querySelectorAll('option').forEach(o => { if (o.getAttribute('value') === 'dia_30') o.setAttribute('selected', ''); else o.removeAttribute('selected'); });
+  p.evento(sel, 'change');
+  escolherAlvo(p, 'turma:t-norte');
+  assert.equal(p.run('ESTADO.diag.rascunho.momento'), 'dia_30');
+  assert.match(p.document.querySelector('[data-duplicado]').textContent, /Já existe um diagnóstico "Dia 30" para Turma Piloto Norte em 02\/10\/2026/);
+  escolherAlvo(p, 'turma:t-sul');
+  assert.equal(p.document.querySelector('[data-duplicado]').textContent, '', 'sem duplicidade, sem aviso');
+});
+
+test('diagnóstico do dia 90 mostra a linha de base do mesmo alvo como referência; a própria base não', async () => {
+  const dados = DADOS();
+  dados.diagnosticos = [
+    { id: 'd-base', alvoTipo: 'turma', alvoId: 't-norte', momento: 'linha_de_base', data: '2026-09-02', avaliador: 'A', notas: notasTodas(1), obs: '' },
+    { id: 'd-90', alvoTipo: 'turma', alvoId: 't-norte', momento: 'dia_90', data: '2026-12-01', avaliador: 'A', notas: notasTodas(3), obs: '' },
+  ];
+  const p = await abrir({ servidor: servidorFalso({ dados }), metodo: 'real', hash: '#/diagnostico/d-90' });
+  await assentar();
+  const ref = p.document.querySelector('[data-referencia]');
+  assert.ok(ref, 'a referência aparece');
+  assert.match(ref.textContent, /Linha de base de 02\/09\/2026 \(geral 25\)/);
+  assert.equal(p.document.querySelectorAll('#diag-resultado .barra u').length, 5, 'uma marca por dimensão');
+  assert.equal(p.document.querySelector('#diag-resultado .barra-dim .barra u').getAttribute('style'), 'left:25%');
+  assert.equal(p.document.querySelector('.resultado-geral .delta').textContent, '+50');
+  assert.doesNotMatch(p.document.querySelector('#diag-resultado').textContent, /sem evidência/, 'todas com evidência: sem lembrete');
+  await p.irPara('#/diagnostico/d-base');
+  await assentar();
+  assert.equal(p.document.querySelector('[data-referencia]'), null, 'a linha de base não se compara consigo mesma');
+  assert.equal(p.document.querySelectorAll('#diag-resultado .barra u').length, 0);
+});
+
+test('diagnóstico: lembrete de nota sem evidência, só informativo (salva mesmo assim)', async () => {
+  const p = await abrir({ metodo: 'real' });
+  await p.irPara('#/diagnostico/novo');
+  escolherAlvo(p, 'turma:t-norte');
+  await preencherDiagnostico(p, 2);
+  escreverEvidencia(p, 'v1', 'Lista conferida em 20/10');
+  const lembrete = p.document.querySelector('[data-sem-evidencia]');
+  assert.match(lembrete.textContent, /^24 com nota e sem evidência \(V2, V3, V4, V5, O1, O2, O3, O4…\)/);
+  p.evento(p.document.querySelector('[data-diag-form]'), 'submit');
+  await assentar();
+  assert.equal(p.servidor.doSync('upsert').length, 1, 'evidência faltando não trava o salvar');
+});
+
+test('diagnóstico novo aberto por link num aparelho sem cópia: as turmas aparecem quando chegam', async () => {
+  const servidor = servidorFalso({ dados: DADOS() });
+  const p = montar({ cracha: crachaFalso({ papel: 'facilitador' }), servidor, metodo: 'real', hash: '#/diagnostico/novo' });
+  // Antes dos dados: o select só tem a opção vazia e a tela avisa que busca.
+  assert.equal(p.document.querySelectorAll('[data-campo="alvo"] option').length, 1);
+  assert.match(p.texto(), /Buscando turmas e empresas no servidor/);
+  await assentar();
+  const opcoes = [...p.document.querySelectorAll('[data-campo="alvo"] option')].map(o => o.getAttribute('value'));
+  assert.ok(opcoes.includes('turma:t-norte'), 'a turma chegou ao select sem recarregar');
+  assert.doesNotMatch(p.texto(), /Buscando turmas e empresas/);
+});
+
+test('lista de diagnósticos: rascunho deste aparelho aparece, inclusive o de um diagnóstico novo', async () => {
+  const dados = DADOS();
+  dados.diagnosticos = [{ id: 'd-base', alvoTipo: 'turma', alvoId: 't-norte', momento: 'linha_de_base', data: '2026-09-02', avaliador: 'A', notas: notasTodas(1), obs: '' }];
+  const p = await abrir({ servidor: servidorFalso({ dados }), metodo: 'real' });
+  await p.irPara('#/diagnostico');
+  assert.equal(p.document.querySelector('[data-rascunho-novo]'), null);
+  assert.equal(p.document.querySelector('.linha .selo'), null);
+  // Começa um novo para a turma Sul, mexe e sai sem salvar.
+  await p.irPara('#/diagnostico/novo');
+  escolherAlvo(p, 'turma:t-sul');
+  marcarNota(p, 'v1', 2);
+  await assentar();
+  // Mexe também no diagnóstico gravado.
+  await p.irPara('#/diagnostico/d-base');
+  await assentar();
+  marcarNota(p, 'v2', 4);
+  await assentar();
+  await p.irPara('#/diagnostico');
+  const aviso = p.document.querySelector('[data-rascunho-novo]');
+  assert.ok(aviso, 'o novo diagnóstico em rascunho tem atalho');
+  assert.match(aviso.textContent, /Turma Aberta Sul · Linha de base/);
+  assert.equal(aviso.querySelector('a').getAttribute('href'), '#/diagnostico/novo');
+  assert.equal(p.document.querySelector('.linha .selo').textContent, 'rascunho neste aparelho');
 });
 
 /* ───────────── plano de 90 dias ───────────── */

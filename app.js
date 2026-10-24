@@ -125,12 +125,15 @@ const campo = (rotulo, controle, dica) => '<div class="campo"><label>' + esc(rot
 const opcoesHTML = (lista, atual) => lista.map(([v, t]) => '<option value="' + esc(v) + '"' + (String(v) === String(atual ?? '') ? ' selected' : '') + '>' + esc(t) + '</option>').join('');
 // Marca a opção pelo atributo e pela propriedade: o atributo serve ao HTML
 // ainda intocado, a propriedade ao select que a pessoa já mexeu.
+// A propriedade só é ligada na opção escolhida: ligar uma desliga as outras,
+// e desligar uma a uma, em alguns DOMs, apaga a escolha recém-feita.
 function marcarOpcao(sel, valor) {
+  let alvo = null;
   $$('option', sel).forEach(o => {
     const sim = o.getAttribute('value') === String(valor);
-    if (sim) o.setAttribute('selected', ''); else o.removeAttribute('selected');
-    try { if ('selected' in o && typeof o.selected === 'boolean') o.selected = sim; } catch {}
+    if (sim) { o.setAttribute('selected', ''); alvo = alvo || o; } else o.removeAttribute('selected');
   });
+  try { if (alvo && 'selected' in alvo && typeof alvo.selected === 'boolean') alvo.selected = true; } catch {}
 }
 function estaDigitando() {
   const a = document.activeElement;
@@ -1142,6 +1145,69 @@ function naSemJustificativa(notas) {
   return praticas().map(p => p.id).filter(id => n[id] && n[id].nota === NA && !String(n[id].evidencia || '').trim());
 }
 const codigosPraticas = ids => ids.map(x => String(x).toUpperCase()).join(', ');
+// A régua (0 a 4) é uma só para as 25 práticas: vem de REGUA.niveis, com nome
+// e requisito separados. O texto "0: Nome. Requisito" de p.niveis só serve de
+// reserva, para um metodo.js antigo.
+const PRIMEIRA_PALAVRA = s => String(s || '').trim().split(/\s+/)[0] || '';
+function niveisRegua(p) {
+  const m = metodo();
+  const doMetodo = m && m.REGUA && Array.isArray(m.REGUA.niveis) ? m.REGUA.niveis : null;
+  const doTexto = Array.isArray(p && p.niveis) ? p.niveis : [];
+  return [0, 1, 2, 3, 4].map(i => {
+    const n = doMetodo && doMetodo.find(x => x && x.nota === i);
+    if (n) return { nota: i, nome: String(n.nome || ''), requisito: String(n.requisito || '') };
+    const txt = String(doTexto[i] || '').replace(/^\s*\d\s*[:.)]\s*/, '');
+    const corte = txt.indexOf('. ');
+    return { nota: i, nome: corte > 0 ? txt.slice(0, corte) : txt, requisito: corte > 0 ? txt.slice(corte + 2) : '' };
+  });
+}
+const TEXTO_NA = 'Inaplicável aqui. Escreva a justificativa no campo Evidência; a dimensão é calculada só com as práticas aplicáveis e a comparabilidade fica limitada.';
+// O que a nota marcada exige, embaixo da régua: só o nível escolhido, em vez
+// dos cinco textos repetidos 25 vezes.
+function detalheNivel(nota, niveis) {
+  if (nota === NA) return '<b>N/A.</b> ' + esc(TEXTO_NA);
+  if (ehNota(nota) && niveis[nota]) return '<b>' + nota + ' ' + esc(niveis[nota].nome) + '.</b> ' + esc(niveis[nota].requisito);
+  return 'Sem nota (ND). Toque na maior nota comprovada.';
+}
+// Quantas práticas de cada dimensão já têm marca (nota ou N/A).
+function progressoDiag(notas) {
+  const n = normalizarNotas(notas), ps = praticas();
+  const dims = dimensoes().map(d => {
+    const lista = ps.filter(p => p.dimensao === d.id);
+    return { id: d.id, nome: d.nome, letra: d.letra || PRIMEIRA_PALAVRA(d.nome).charAt(0), total: lista.length, feitas: lista.filter(p => n[p.id] && temMarca(n[p.id].nota)).length };
+  });
+  return { dims, total: ps.length, feitas: ps.filter(p => n[p.id] && temMarca(n[p.id].nota)).length };
+}
+// Práticas com nota (0 a 4) e campo Evidência vazio. O caderno pede evidência
+// por prática (p. 31); aqui é só um lembrete, não trava o salvar.
+function notasSemEvidencia(notas) {
+  const n = normalizarNotas(notas);
+  return praticas().map(p => p.id).filter(id => n[id] && ehNota(n[id].nota) && !String(n[id].evidencia || '').trim());
+}
+// Próximo momento ainda não feito para o alvo: base, 30, 60, 90; depois "outro".
+function proximoMomento(tipo, id) {
+  const feitos = new Set(STORE.col('diagnosticos').filter(d => d.alvoTipo === tipo && d.alvoId === id).map(d => d.momento));
+  return ['linha_de_base', 'dia_30', 'dia_60', 'dia_90'].find(m => !feitos.has(m)) || 'outro';
+}
+// Mesmo alvo e mesmo momento já gravados: avisa, não trava. Uma segunda linha
+// de base confunde a comparação, que usa a primeira por data.
+function avisoDuplicadoHTML(r) {
+  if (!r || !r.alvoTipo || !r.alvoId || r.momento === 'outro') return '';
+  const iguais = STORE.col('diagnosticos').filter(d => d.id !== r.id && d.alvoTipo === r.alvoTipo && d.alvoId === r.alvoId && d.momento === r.momento);
+  if (!iguais.length) return '';
+  const d = iguais[0];
+  return avisoHTML('Já existe um diagnóstico "' + rotuloMomento(r.momento) + '" para ' + nomeAlvo(r.alvoTipo, r.alvoId) + (d.data ? ' em ' + fmtData(d.data) : '') + '. Salvar este cria um segundo; a comparação usa o mais antigo como linha de base.', 'amarelo');
+}
+// A linha de base do mesmo alvo, para mostrar ao lado do resultado enquanto se
+// pontua o dia 30, 60 ou 90. O próprio diagnóstico de base não tem referência.
+function referenciaBase(r) {
+  if (!r || !r.alvoTipo || !r.alvoId || r.momento === 'linha_de_base') return null;
+  const base = diagnosticosDoAlvo(r.alvoTipo + ':' + r.alvoId).find(d => d.momento === 'linha_de_base' && d.id !== r.id);
+  if (!base) return null;
+  const res = resultadoDe(base);
+  if (!res) return null;
+  return { rotulo: 'Linha de base' + (base.data ? ' de ' + fmtData(base.data) : ''), id: base.id, res };
+}
 // A régua é a do caderno (VOFMetodo.pontuar): dimensão com prática sem nota
 // fica EM ABERTO (null) e o geral só fecha com as cinco. Em aberto nunca vira
 // zero na tela: zero é nota confirmada, não falta de nota.
@@ -1164,6 +1230,7 @@ function resultadoDe(diag) {
       faixa: r.faixa && typeof r.faixa === 'object' ? r.faixa : null, abaixoDe40: Array.isArray(r.abaixoDe40) ? r.abaixoDe40 : [],
       na, inaplicaveis: [].concat(...Object.values(na)),
       semJustificativa: naSemJustificativa(diag.notas), todasNA: dimensoesTodasNA(diag.notas),
+      semEvidencia: notasSemEvidencia(diag.notas),
     };
     dimensoes().forEach(d => { out[d.id] = numOuNulo(r[d.id]); });
     return out;
@@ -1197,14 +1264,18 @@ function comparacaoHTML(alvo) {
   if (!rb || !ru) return avisoHTML('A régua de pontuação do método não carregou; não dá para comparar agora.', 'amarelo');
   const limitada = id => !!((rb.na[id] || []).length || (ru.na[id] || []).length);
   const algumaLimitada = dimensoes().some(d => limitada(d.id));
+  // data-rotulo: no celular a tabela vira cartões e cada célula leva o próprio
+  // cabeçalho (styles.css), para a coluna Diferença não ficar fora da tela.
+  const rotUltimo = rotuloMomento(ultimo.momento);
   const linha = (nome, a, b, lim) => {
-    const cab = '<tr' + (lim ? ' class="limitada"' : '') + '><th scope="row">' + esc(nome) + (lim ? ' <small class="comparabilidade">comparabilidade limitada</small>' : '') + '</th><td>' + fmtPontos(a) + '</td><td>' + fmtPontos(b) + '</td>';
-    if (a === null || b === null) return cab + '<td class="dica">sem comparação</td></tr>';
+    const cab = '<tr' + (lim ? ' class="limitada"' : '') + '><th scope="row">' + esc(nome) + (lim ? ' <small class="comparabilidade">comparabilidade limitada</small>' : '') + '</th><td data-rotulo="Linha de base">' + fmtPontos(a) + '</td><td data-rotulo="' + esc(rotUltimo) + '">' + fmtPontos(b) + '</td>';
+    if (a === null || b === null) return cab + '<td class="dica" data-rotulo="Diferença">sem comparação</td></tr>';
     const d = Math.round((b - a) * 10) / 10;
-    return cab + '<td class="' + (d > 0 ? 'sobe' : d < 0 ? 'desce' : '') + '">' + (d > 0 ? '+' : '') + fmtPontos(d) + '</td></tr>';
+    return cab + '<td class="' + (d > 0 ? 'sobe' : d < 0 ? 'desce' : '') + '" data-rotulo="Diferença">' + (d > 0 ? '+' : '') + fmtPontos(d) + '</td></tr>';
   };
   const ondeNA = (rotulo, r) => r.inaplicaveis.length ? rotulo + ': N/A em ' + codigosPraticas(r.inaplicaveis) + '.' : '';
-  return '<div class="rolagem-x"><table class="comparacao"><thead><tr><th scope="col">Dimensão</th><th scope="col">Linha de base<br><small>' + esc(fmtData(base.data)) + '</small></th><th scope="col">' + esc(rotuloMomento(ultimo.momento)) + '<br><small>' + esc(fmtData(ultimo.data)) + '</small></th><th scope="col">Diferença</th></tr></thead><tbody>' +
+  return '<p class="dica comparacao-legenda">Linha de base de ' + esc(fmtData(base.data)) + ' × ' + esc(rotUltimo) + ' de ' + esc(fmtData(ultimo.data)) + '. Diferença em pontos, de 0 a 100.</p>' +
+    '<div class="rolagem-x"><table class="comparacao"><thead><tr><th scope="col">Dimensão</th><th scope="col">Linha de base<br><small>' + esc(fmtData(base.data)) + '</small></th><th scope="col">' + esc(rotUltimo) + '<br><small>' + esc(fmtData(ultimo.data)) + '</small></th><th scope="col">Diferença</th></tr></thead><tbody>' +
     dimensoes().map(d => linha(d.nome, rb[d.id], ru[d.id], limitada(d.id))).join('') + linha('Geral', rb.geral, ru.geral, algumaLimitada) + '</tbody></table></div>' +
     (algumaLimitada ? '<p class="aviso amarelo" data-comparabilidade>Comparabilidade limitada: prática marcada N/A ajusta o denominador (100 × soma ÷ (4 × aplicáveis)). ' +
       esc([ondeNA('Linha de base', rb), ondeNA(rotuloMomento(ultimo.momento), ru)].filter(Boolean).join(' ')) + ' Caderno p. 31.</p>' : '') +
@@ -1223,25 +1294,32 @@ function renderDiagnostico(app) {
   sel.addEventListener('change', () => { ESTADO.diag.alvo = sel.value; pintarPainelDiag(); });
   pintarPainelDiag();
 }
+// Rascunho alterado neste aparelho e ainda não salvo no servidor.
+const rascunhoPendente = chave => { const r = STORE.rascunho(chave); return r && typeof r === 'object' && r._alteradoEm ? r : null; };
 function pintarPainelDiag() {
   const alvo = ESTADO.diag.alvo, painel = $('#diag-painel'); if (!painel) return;
   const novo = podeEditar() && praticas().length ? '<a class="botao" href="#/diagnostico/novo">Novo diagnóstico' + (alvo ? ' para ' + esc(nomeAlvo(splitAlvo(alvo)[0], splitAlvo(alvo)[1])) : '') + '</a>' : '';
+  // Um novo diagnóstico começado aqui e deixado no meio não some: o atalho leva de volta a ele.
+  const pend = podeEditar() ? rascunhoPendente('diag_novo') : null;
+  const continuar = pend ? '<div class="aviso amarelo" data-rascunho-novo>Há um novo diagnóstico em rascunho neste aparelho' + (pend.alvoTipo && pend.alvoId ? ' (' + esc(nomeAlvo(pend.alvoTipo, pend.alvoId)) + ' · ' + esc(rotuloMomento(pend.momento)) + ')' : '') + ', alterado em ' + esc(fmtHora(pend._alteradoEm)) + '. <a href="#/diagnostico/novo">Continuar o rascunho</a></div>' : '';
   if (!alvo) {
     const recentes = STORE.col('diagnosticos').sort(porDataDesc).slice(0, 12);
-    painel.innerHTML = '<div class="acoes">' + novo + '</div><h2>Diagnósticos recentes</h2>' +
+    painel.innerHTML = continuar + '<div class="acoes">' + novo + '</div><h2>Diagnósticos recentes</h2>' +
       (recentes.length ? '<div class="lista">' + recentes.map(linhaDiag).join('') + '</div>' : vazioHonesto('Nenhum diagnóstico salvo ainda.'));
     return;
   }
   const lista = diagnosticosDoAlvo(alvo);
-  painel.innerHTML = '<div class="acoes">' + novo + '</div>' +
+  painel.innerHTML = continuar + '<div class="acoes">' + novo + '</div>' +
     '<h2>Linha de base e último momento</h2>' + comparacaoHTML(alvo) +
     '<h2>Todos os diagnósticos de ' + esc(nomeAlvo(splitAlvo(alvo)[0], splitAlvo(alvo)[1])) + '</h2>' +
     (lista.length ? '<div class="lista">' + lista.slice().reverse().map(linhaDiag).join('') + '</div>' : vazioHonesto('Nenhum diagnóstico para esta escolha.'));
 }
 function linhaDiag(d) {
   const r = resultadoDe(d);
+  const pend = rascunhoPendente('diag_' + d.id);
   return '<a class="linha linha-link" href="#/diagnostico/' + encodeURIComponent(d.id) + '"><div class="linha-texto"><b>' + esc(nomeAlvo(d.alvoTipo, d.alvoId)) + ' · ' + esc(rotuloMomento(d.momento)) + '</b>' +
-    '<small>' + [fmtData(d.data), d.avaliador].filter(Boolean).map(esc).join(' · ') + '</small></div>' +
+    '<small>' + [fmtData(d.data), d.avaliador].filter(Boolean).map(esc).join(' · ') + '</small>' +
+    (pend ? '<span class="selo amarelo">rascunho neste aparelho</span>' : '') + '</div>' +
     (r ? (r.geral === null ? '<span class="nota-geral parcial">…<small>incompleto</small></span>' : '<span class="nota-geral">' + fmtPontos(r.geral) + '<small>geral</small></span>') : '') + '</a>';
 }
 function rascunhoDiag(arg) {
@@ -1254,7 +1332,7 @@ function rascunhoDiag(arg) {
   if (r && typeof r === 'object' && r._alteradoEm) r._restaurado = true;
   else if (arg === 'novo') {
     const [tipo, id] = splitAlvo(ESTADO.diag.alvo);
-    r = { id: novoId(), alvoTipo: tipo || '', alvoId: id || '', momento: STORE.col('diagnosticos').some(d => d.alvoTipo === tipo && d.alvoId === id && d.momento === 'linha_de_base') ? 'dia_90' : 'linha_de_base', data: hojeISO(), avaliador: ESTADO.sessao.nome, notas: {}, obs: '' };
+    r = { id: novoId(), alvoTipo: tipo || '', alvoId: id || '', momento: tipo && id ? proximoMomento(tipo, id) : 'linha_de_base', data: hojeISO(), avaliador: ESTADO.sessao.nome, notas: {}, obs: '' };
   } else {
     const reg = STORE.um('diagnosticos', arg);
     if (!reg) return null;
@@ -1270,44 +1348,66 @@ function guardarRascunhoDiag() {
   r._alteradoEm = new Date().toISOString();
   STORE.rascunho(r._chave, r);
 }
+// Régua compacta: seis alvos lado a lado (0 a 4 e N/A), número e nome curto.
+// O requisito do nível aparece embaixo, só para a nota marcada; o nome inteiro
+// e o requisito continuam no leitor de tela (.sr). A régua completa fica em
+// "Como dar a nota", uma vez por diagnóstico, e não repetida 25 vezes.
 function htmlPratica(p, nota) {
   const n = nota || { nota: null, evidencia: '' };
-  const niveis = Array.isArray(p.niveis) ? p.niveis : [];
+  const niveis = niveisRegua(p);
   return '<article class="pratica" data-pratica="' + esc(p.id) + '">' +
     '<h3><span class="pratica-id">' + esc(String(p.id).toUpperCase()) + '</span> ' + esc(p.titulo || '') + '</h3>' +
     (p.pergunta ? '<p class="pratica-pergunta">' + esc(p.pergunta) + '</p>' : '') +
     (p.descricao ? '<p class="pratica-descricao">' + esc(p.descricao) + '</p>' : '') +
     (p.evidencia ? '<p class="dica">Onde olhar: ' + esc(p.evidencia) + '</p>' : '') +
     '<div class="regua" role="radiogroup" aria-label="Nota de ' + esc(p.id) + '">' +
-    [0, 1, 2, 3, 4].map(i => {
-      const txt = String(niveis[i] || '').replace(/^\s*\d\s*[:.)]\s*/, '');
-      const corte = txt.indexOf('. ');
-      const nome = corte > 0 ? txt.slice(0, corte) : txt, resto = corte > 0 ? txt.slice(corte + 2) : '';
-      return '<label class="nivel"><input type="radio" name="nota-' + esc(p.id) + '" value="' + i + '"' + (n.nota === i ? ' checked' : '') + '><span><b>' + i + '</b>' + (nome ? ' <strong>' + esc(nome) + '</strong>' : '') + (resto ? '<small>' + esc(resto) + '</small>' : '') + '</span></label>';
-    }).join('') +
+    niveis.map(nv => '<label class="nivel"><input type="radio" name="nota-' + esc(p.id) + '" value="' + nv.nota + '"' + (n.nota === nv.nota ? ' checked' : '') + '><span><b>' + nv.nota + '</b><strong>' + esc(PRIMEIRA_PALAVRA(nv.nome) || ('Nota ' + nv.nota)) + '</strong><small class="sr">' + esc(nv.nome) + '. ' + esc(nv.requisito) + '</small></span></label>').join('') +
     // N/A tem o mesmo alvo de toque das notas 0 a 4: a mesma classe .nivel.
-    '<label class="nivel nivel-na"><input type="radio" name="nota-' + esc(p.id) + '" value="' + NA + '"' + (n.nota === NA ? ' checked' : '') + '><span><b>N/A</b> <strong>Não se aplica</strong><small>Inaplicável aqui. Escreva a justificativa no campo Evidência; a dimensão é calculada só com as práticas aplicáveis.</small></span></label>' +
+    '<label class="nivel nivel-na"><input type="radio" name="nota-' + esc(p.id) + '" value="' + NA + '"' + (n.nota === NA ? ' checked' : '') + '><span><b>N/A</b><strong>Não se aplica</strong><small class="sr">' + esc(TEXTO_NA) + '</small></span></label>' +
     '</div>' +
+    '<p class="nivel-detalhe" data-detalhe="' + esc(p.id) + '">' + detalheNivel(n.nota, niveis) + '</p>' +
+    '<div class="pratica-rodape">' +
+    '<label class="evidencia">Evidência<textarea data-evidencia="' + esc(p.id) + '" rows="1" maxlength="600" placeholder="' + (n.nota === NA ? 'Por que esta prática não se aplica' : 'Documento, execução ou entrevista') + '">' + esc(n.evidencia) + '</textarea></label>' +
     '<button type="button" class="botao mini fantasma" data-limpar="' + esc(p.id) + '"' + (temMarca(n.nota) ? '' : ' hidden') + '>Tirar a nota (fica ND)</button>' +
-    '<label class="evidencia">Evidência<input type="text" data-evidencia="' + esc(p.id) + '" maxlength="600" placeholder="' + (n.nota === NA ? 'Por que esta prática não se aplica' : 'O que mostra que a prática acontece') + '" value="' + esc(n.evidencia) + '"></label>' +
+    '</div>' +
     (p.fonte ? '<p class="fonte">' + esc(p.fonte) + '</p>' : '') + '</article>';
 }
-function htmlResultado(r) {
+// Resumo curto do andamento, para a barra fixa do celular e o leitor de tela.
+function textoProgresso(r, notas) {
+  const pr = progressoDiag(notas);
+  return pr.feitas + ' de ' + pr.total + ' pontuadas · Geral: ' + (r ? fmtPontos(r.geral) : 'em aberto');
+}
+// Atalhos por dimensão com a contagem: rolam até o bloco (data-ir-dim).
+function htmlDimensoes(notas) {
+  const pr = progressoDiag(notas);
+  return '<div class="diag-dims" role="group" aria-label="Ir para a dimensão">' + pr.dims.map(d =>
+    '<button type="button" class="dim-pulo' + (d.total && d.feitas === d.total ? ' feita' : '') + '" data-ir-dim="' + esc(d.id) + '" aria-label="' + esc(d.nome) + ': ' + d.feitas + ' de ' + d.total + '"><b>' + esc(d.letra) + '</b><span>' + d.feitas + '/' + d.total + '</span></button>').join('') + '</div>';
+}
+// ref: a linha de base do mesmo alvo ({rotulo, res}), quando existe e este
+// diagnóstico não é ela. Vira uma marca na barra e a diferença no geral.
+function htmlResultado(r, ref) {
   if (!r) return '<p class="dica">A régua de pontuação do método não carregou.</p>';
   const total = praticas().length || 25;
   const nNA = r.inaplicaveis.length, aplicaveis = total - nNA;
   const m = metodo();
   const baixo = new Set(r.abaixoDe40);
-  return '<div class="resultado-geral' + (r.geral === null ? ' aberto' : '') + '"><span>Geral</span><b data-geral>' + fmtPontos(r.geral) + '</b>' + (r.geral === null ? '' : '<small>de 100</small>') + '</div>' +
+  const delta = (a, b) => { if (a === null || b === null) return ''; const d = Math.round((b - a) * 10) / 10; return '<small class="delta ' + (d > 0 ? 'sobe' : d < 0 ? 'desce' : '') + '" title="Diferença para a linha de base">' + (d > 0 ? '+' : '') + fmtPontos(d) + '</small>'; };
+  const cobertura = typeof r.cobertura === 'number' ? Math.round(r.cobertura) : null;
+  return '<div class="resultado-geral' + (r.geral === null ? ' aberto' : '') + '"><span>Geral</span><b data-geral>' + fmtPontos(r.geral) + '</b>' + (r.geral === null ? '' : '<small>de 100</small>') + (ref ? delta(ref.res.geral, r.geral) : '') + '</div>' +
     (r.faixa && r.faixa.nome ? '<p class="faixa"><b>' + esc(r.faixa.nome) + '.</b> ' + esc(r.faixa.leitura || '') + '</p>' : '') +
     dimensoes().map(d => {
-      const v = r[d.id];
-      return '<div class="barra-dim' + (baixo.has(d.id) ? ' baixo' : '') + '"><span>' + esc(d.nome) + '</span><div class="barra"><i style="width:' + (v === null ? 0 : Math.max(0, Math.min(100, v))) + '%"></i></div><b>' + (v === null ? '<small>aberto</small>' : fmtPontos(v)) + '</b></div>';
+      const v = r[d.id], rv = ref ? ref.res[d.id] : null;
+      return '<div class="barra-dim' + (baixo.has(d.id) ? ' baixo' : '') + '"><span>' + esc(d.nome) + '</span><div class="barra"><i style="width:' + (v === null ? 0 : Math.max(0, Math.min(100, v))) + '%"></i>' +
+        (rv === null || rv === undefined ? '' : '<u style="left:' + Math.max(0, Math.min(100, rv)) + '%" title="' + esc(ref.rotulo) + ': ' + fmtPontos(rv) + '"></u>') +
+        '</div><b>' + (v === null ? '<small>aberto</small>' : fmtPontos(v)) + '</b></div>';
     }).join('') +
+    (ref ? '<p class="dica" data-referencia>Marca dourada: ' + esc(ref.rotulo) + ' (geral ' + fmtPontos(ref.res.geral) + ').</p>' : '') +
     ((r.nucleo !== null || r.sustentacao !== null) ? '<p class="dica">Núcleo (V, O, F): ' + fmtPontos(r.nucleo) + ' · Sustentação (P, G): ' + fmtPontos(r.sustentacao) + '</p>' : '') +
     (baixo.size ? '<p class="aviso vermelho">Abaixo de 40: ' + esc(dimensoes().filter(d => baixo.has(d.id)).map(d => d.nome).join(', ')) + '.</p>' : '') +
     (r.faltando.length ? '<p class="aviso amarelo">' + r.faltando.length + ' de ' + (nNA ? aplicaveis + ' práticas aplicáveis' : total + ' práticas') + ' sem nota (ND). Dimensão com prática sem nota fica em aberto; o geral só fecha com ' + (nNA ? 'todas as aplicáveis' : 'as ' + total) + '.</p>'
       : '<p class="aviso verde">As ' + (nNA ? aplicaveis + ' práticas aplicáveis' : total + ' práticas') + ' estão pontuadas.</p>') +
+    (cobertura === null ? '' : '<p class="dica" data-cobertura>Cobertura: ' + cobertura + '% (' + (aplicaveis - r.faltando.length) + ' de ' + aplicaveis + ' aplicáveis pontuadas). Caderno p. 31.</p>') +
+    (r.semEvidencia && r.semEvidencia.length ? '<p class="dica" data-sem-evidencia>' + r.semEvidencia.length + ' com nota e sem evidência' + (r.semEvidencia.length <= 8 ? ': ' + esc(codigosPraticas(r.semEvidencia)) : ' (' + esc(codigosPraticas(r.semEvidencia.slice(0, 8))) + '…)') + '. O caderno pede evidência por prática.</p>' : '') +
     (nNA ? '<p class="aviso azul" data-aviso-na>N/A em ' + esc(codigosPraticas(r.inaplicaveis)) + ': a dimensão usa 100 × soma ÷ (4 × aplicáveis) e a comparabilidade fica limitada (caderno p. 31).</p>' : '') +
     (r.semJustificativa.length ? '<p class="aviso vermelho" data-na-sem-justificativa>N/A sem justificativa: ' + esc(codigosPraticas(r.semJustificativa)) + '. O caderno pede a justificativa antes da pontuação; escreva no campo Evidência.</p>' : '') +
     (r.todasNA.length ? '<p class="aviso vermelho" data-dimensao-toda-na>' + esc(r.todasNA.map(d => d.nome).join(', ')) + ': todas as práticas em N/A. O caderno não permite excluir uma dimensão inteira; pontue ao menos uma prática dela.</p>' : '') +
@@ -1329,45 +1429,81 @@ function renderDiagEditor(app) {
   const existente = arg !== 'novo';
   const edita = podeEditar();
   const alvoAtual = r.alvoTipo && r.alvoId ? r.alvoTipo + ':' + r.alvoId : '';
+  const contagem = progressoDiag(r.notas).dims;
   const blocos = dimensoes().map(d => {
     const lista = ps.filter(p => p.dimensao === d.id);
     if (!lista.length) return '';
-    return '<fieldset class="diag-dim"><legend>' + esc(d.nome) + '</legend>' + lista.map(p => htmlPratica(p, r.notas[p.id])).join('') + '</fieldset>';
+    const c = contagem.find(x => x.id === d.id);
+    return '<fieldset class="diag-dim" data-dim="' + esc(d.id) + '"><legend>' + esc(d.nome) + '<small data-dim-contagem="' + esc(d.id) + '">' + (c ? c.feitas + ' de ' + c.total : '') + '</small></legend>' + lista.map(p => htmlPratica(p, r.notas[p.id])).join('') + '</fieldset>';
   }).join('');
   const semDimensao = ps.filter(p => !dimensoes().some(d => d.id === p.dimensao));
+  const regua = metodo() && metodo().REGUA ? metodo().REGUA : null;
+  const niveis = niveisRegua(ps[0]);
+  const res0 = resultadoDe(r), ref0 = referenciaBase(r);
   app.innerHTML = pagina('diagnostico',
     '<div class="titulo-area"><a class="voltar" href="#/diagnostico">Diagnósticos</a><h1>' + (existente ? 'Diagnóstico' : 'Novo diagnóstico') + '</h1></div>' +
     (r._alteradoEm ? '<div class="aviso amarelo">Rascunho guardado neste aparelho em ' + esc(fmtHora(r._alteradoEm)) + ', ainda não salvo no servidor. <button type="button" class="botao mini fantasma" data-descartar>Descartar o rascunho</button></div>' : '') +
     (edita ? '' : avisoHTML('Seu acesso é só de leitura.', 'azul')) +
-    (metodo() && metodo().REGUA ? '<details class="cartao regua-ajuda"><summary>Como dar a nota</summary><p>' + esc(metodo().REGUA.comoEscolher || metodo().REGUA.curta || '') + '</p>' + (metodo().REGUA.nd ? '<p>' + esc(metodo().REGUA.nd) + ' Deixe sem nota.</p>' : '') + '<p>' + esc(REGRA_NA) + '</p>' + (metodo().REGUA.fonte ? '<p class="fonte">' + esc(metodo().REGUA.fonte) + '</p>' : '') + '</details>' : '') +
+    // A régua inteira, uma vez: nome e requisito dos cinco níveis, ND e N/A.
+    (regua ? '<details class="cartao regua-ajuda"><summary>Como dar a nota (régua de 0 a 4)</summary><p>' + esc(regua.comoEscolher || regua.curta || '') + '</p>' +
+      '<ol class="regua-niveis" start="0">' + niveis.map(nv => '<li><b>' + nv.nota + ' ' + esc(nv.nome) + '.</b> ' + esc(nv.requisito) + '</li>').join('') + '</ol>' +
+      (regua.nd ? '<p>' + esc(regua.nd) + ' Deixe sem nota.</p>' : '') + '<p>' + esc(REGRA_NA) + '</p>' + (regua.fonte ? '<p class="fonte">' + esc(regua.fonte) + '</p>' : '') + '</details>' : '') +
     '<form class="diag-form" data-diag-form novalidate><div class="diag-grade"><div class="diag-principal">' +
     '<section class="cartao"><div class="duas">' +
-    campo('Turma ou empresa', '<select data-campo="alvo">' + opcoesAlvo(alvoAtual) + '</select>') +
+    // Aberto por link num aparelho sem cópia, o novo diagnóstico nasce antes
+    // das turmas chegarem: data-aguardando deixa a tela ser redesenhada quando
+    // elas chegam (podeRedesenhar), e o rascunho sobrevive ao redesenho.
+    campo('Turma ou empresa', '<select data-campo="alvo">' + opcoesAlvo(alvoAtual) + '</select>', !existente && !STORE.atualizadoEm() ? 'Buscando turmas e empresas no servidor…' : '') +
+    (!existente && !STORE.atualizadoEm() ? '<span data-aguardando hidden></span>' : '') +
     campo('Momento', '<select data-campo="momento">' + opcoesHTML(MOMENTOS, r.momento) + '</select>') +
     '</div><div class="duas">' +
     campo('Data', '<input type="date" data-campo="data" value="' + esc(r.data || '') + '">') +
     campo('Avaliador', '<input type="text" data-campo="avaliador" maxlength="120" value="' + esc(r.avaliador || '') + '">') +
-    '</div></section>' +
-    blocos + (semDimensao.length ? '<fieldset class="diag-dim"><legend>Outras práticas</legend>' + semDimensao.map(p => htmlPratica(p, r.notas[p.id])).join('') + '</fieldset>' : '') +
+    '</div><div data-duplicado>' + avisoDuplicadoHTML(r) + '</div></section>' +
+    blocos + (semDimensao.length ? '<fieldset class="diag-dim" data-dim="outras"><legend>Outras práticas</legend>' + semDimensao.map(p => htmlPratica(p, r.notas[p.id])).join('') + '</fieldset>' : '') +
     '<section class="cartao">' + campo('Observações', '<textarea data-campo="obs" rows="3" maxlength="4000">' + esc(r.obs || '') + '</textarea>') + '</section>' +
-    '</div><aside class="diag-lado"><section class="cartao resultado" aria-live="polite"><h2>Resultado</h2><div id="diag-resultado">' + htmlResultado(resultadoDe(r)) + '</div>' +
+    '</div><aside class="diag-lado"><section class="cartao resultado"><h2>Resultado</h2>' +
+    '<div data-dims-lado>' + htmlDimensoes(r.notas) + '</div>' +
+    '<div id="diag-resultado">' + htmlResultado(res0, ref0) + '</div>' +
+    '<p class="sr" data-anuncio aria-live="polite">' + esc(textoProgresso(res0, r.notas)) + '</p>' +
     '<div data-erro role="alert"></div>' +
     (edita ? '<div class="acoes"><button type="submit" class="botao largo">Salvar diagnóstico</button></div>' : '') +
     (edita && existente && souAdmin() ? '<button type="button" class="botao mini perigo" data-apagar-diag>Apagar este diagnóstico</button>' : '') +
-    '</section></aside></div></form>');
+    '</section></aside></div>' +
+    // Barra fixa no rodapé do celular: andamento, atalhos por dimensão e o
+    // salvar sempre à mão. No desktop o painel ao lado já é fixo (styles.css).
+    '<div class="barra-diag" data-barra-diag><div class="barra-diag-cartao"><div data-dims-barra>' + htmlDimensoes(r.notas) + '</div>' +
+    '<div class="barra-diag-linha"><span data-progresso>' + esc(textoProgresso(res0, r.notas)) + '</span>' + (edita ? '<button type="submit" class="botao">Salvar</button>' : '') + '</div></div></div>' +
+    '</form>');
   ligarCab();
   const form = $('[data-diag-form]');
   if (!edita) $$('input, select, textarea', form).forEach(el => { el.disabled = true; });
-  const atualizarResultado = () => { const alvo = $('#diag-resultado'); if (alvo) alvo.innerHTML = htmlResultado(resultadoDe(ESTADO.diag.rascunho)); };
+  // Evidência cresce com o texto, sem barra de rolagem interna.
+  const ajustarAltura = el => { if (!el || typeof el.scrollHeight !== 'number' || !el.style) return; el.style.height = 'auto'; el.style.height = Math.max(44, el.scrollHeight + 2) + 'px'; };
+  $$('textarea[data-evidencia]', form).forEach(ajustarAltura);
+  const atualizarResultado = () => {
+    const rr = ESTADO.diag.rascunho, alvo = $('#diag-resultado'); if (!rr || !alvo) return;
+    const res = resultadoDe(rr);
+    alvo.innerHTML = htmlResultado(res, referenciaBase(rr));
+    const dims = htmlDimensoes(rr.notas);
+    $$('[data-dims-lado], [data-dims-barra]', form).forEach(el => { el.innerHTML = dims; });
+    const txt = textoProgresso(res, rr.notas);
+    $$('[data-progresso], [data-anuncio]', form).forEach(el => { el.textContent = txt; });
+    progressoDiag(rr.notas).dims.forEach(d => { const el = $('[data-dim-contagem="' + d.id + '"]', form); if (el) el.textContent = d.feitas + ' de ' + d.total; });
+  };
+  const atualizarDuplicado = () => { const el = $('[data-duplicado]', form); if (el) el.innerHTML = avisoDuplicadoHTML(ESTADO.diag.rascunho); };
   let tempo = null;
   form.addEventListener('input', ev => {
     const el = ev.target, rr = ESTADO.diag.rascunho; if (!rr) return;
     if (el.hasAttribute('data-evidencia')) {
       const id = el.getAttribute('data-evidencia');
-      const antes = rr.notas[id] && rr.notas[id].nota === NA && !String(rr.notas[id].evidencia || '').trim();
+      const vaziaAntes = !(rr.notas[id] && String(rr.notas[id].evidencia || '').trim());
       rr.notas[id] = Object.assign({ nota: null, evidencia: '' }, rr.notas[id], { evidencia: el.value });
-      // O aviso de N/A sem justificativa acompanha a digitação.
-      if (rr.notas[id].nota === NA && antes !== !String(el.value || '').trim()) atualizarResultado();
+      ajustarAltura(el);
+      // Os avisos de N/A sem justificativa e de nota sem evidência acompanham
+      // a digitação: redesenha o painel quando o campo passa de vazio a
+      // escrito, ou o contrário.
+      if (temMarca(rr.notas[id].nota) && vaziaAntes !== !String(el.value || '').trim()) atualizarResultado();
     } else if (el.hasAttribute('data-campo')) aplicarCampoDiag(rr, el);
     else return;
     // A marca de "alterado" é imediata; só a cópia no aparelho espera a pausa
@@ -1380,19 +1516,41 @@ function renderDiagEditor(app) {
     const el = ev.target, rr = ESTADO.diag.rascunho; if (!rr) return;
     const m = /^nota-(.+)$/.exec(el.getAttribute('name') || '');
     if (m && el.checked) {
-      rr.notas[m[1]] = Object.assign({ nota: null, evidencia: '' }, rr.notas[m[1]], { nota: el.value === NA ? NA : Number(el.value) });
-      const limpar = $('[data-limpar="' + m[1] + '"]', form); if (limpar) limpar.hidden = false;
-      const ev = $('[data-evidencia="' + m[1] + '"]', form);
-      if (ev) ev.setAttribute('placeholder', el.value === NA ? 'Por que esta prática não se aplica' : 'O que mostra que a prática acontece');
+      const id = m[1], valor = el.value === NA ? NA : Number(el.value);
+      rr.notas[id] = Object.assign({ nota: null, evidencia: '' }, rr.notas[id], { nota: valor });
+      const limpar = $('[data-limpar="' + id + '"]', form); if (limpar) limpar.hidden = false;
+      const ev = $('[data-evidencia="' + id + '"]', form);
+      if (ev) ev.setAttribute('placeholder', valor === NA ? 'Por que esta prática não se aplica' : 'Documento, execução ou entrevista');
+      const det = $('[data-detalhe="' + id + '"]', form);
+      if (det) det.innerHTML = detalheNivel(valor, niveisRegua(ps.find(p => p.id === id)));
       atualizarResultado();
-    } else if (el.hasAttribute('data-campo')) aplicarCampoDiag(rr, el);
+    } else if (el.hasAttribute('data-campo')) {
+      const c = el.getAttribute('data-campo');
+      aplicarCampoDiag(rr, el);
+      if (c === 'momento') rr._momentoManual = true;
+      // Diagnóstico novo: trocar o alvo escolhe o próximo momento daquele alvo,
+      // a menos que a pessoa já tenha escolhido o momento à mão.
+      if (c === 'alvo' && !existente && !rr._momentoManual && rr.alvoTipo && rr.alvoId) {
+        rr.momento = proximoMomento(rr.alvoTipo, rr.alvoId);
+        const sel = $('[data-campo="momento"]', form); if (sel) marcarOpcao(sel, rr.momento);
+      }
+      if (c === 'alvo' || c === 'momento') { atualizarDuplicado(); atualizarResultado(); }
+    }
     guardarRascunhoDiag();
   });
   form.addEventListener('click', ev => {
+    const ir = ev.target.closest('[data-ir-dim]');
+    if (ir) {
+      const bloco = $('[data-dim="' + ir.getAttribute('data-ir-dim') + '"]', form);
+      if (bloco && typeof bloco.scrollIntoView === 'function') bloco.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     const b = ev.target.closest('[data-limpar]'); if (!b) return;
     const id = b.getAttribute('data-limpar'), rr = ESTADO.diag.rascunho; if (!rr) return;
     rr.notas[id] = Object.assign({ nota: null, evidencia: '' }, rr.notas[id], { nota: null });
     $$('input[name="nota-' + id + '"]', form).forEach(x => { x.checked = false; x.removeAttribute('checked'); });
+    const det = $('[data-detalhe="' + id + '"]', form);
+    if (det) det.innerHTML = detalheNivel(null, niveisRegua(ps.find(p => p.id === id)));
     b.hidden = true; atualizarResultado(); guardarRascunhoDiag();
   });
   form.addEventListener('submit', ev => { ev.preventDefault(); salvarDiag(); });
@@ -1410,7 +1568,8 @@ function aplicarCampoDiag(rr, el) {
 }
 async function salvarDiag() {
   const r = ESTADO.diag.rascunho; if (!r) return;
-  const erro = $('[data-erro]'), bt = $('[data-diag-form] button[type=submit]');
+  const erro = $('[data-erro]'), bts = $$('[data-diag-form] button[type=submit]');
+  const botoes = (desligado, texto) => bts.forEach(b => { b.disabled = desligado; b.textContent = texto || (b.classList.contains('largo') ? 'Salvar diagnóstico' : 'Salvar'); });
   const problemas = [];
   if (!r.alvoTipo || !r.alvoId) problemas.push('Escolha a turma ou a empresa.');
   if (!MOMENTOS.some(m => m[0] === r.momento)) problemas.push('Escolha o momento.');
@@ -1419,12 +1578,14 @@ async function salvarDiag() {
   if (semJust.length) problemas.push('N/A precisa de justificativa antes da pontuação (caderno p. 31): escreva no campo Evidência de ' + codigosPraticas(semJust) + '.');
   const todasNA = dimensoesTodasNA(r.notas);
   if (todasNA.length) problemas.push('O caderno não permite excluir uma dimensão inteira (p. 31): ' + todasNA.map(d => d.nome).join(', ') + ' está com todas as práticas em N/A.');
-  if (problemas.length) { erro.innerHTML = avisoHTML(problemas.join(' '), 'vermelho'); return; }
+  // O aviso mora no painel de resultado; no celular ele fica longe do botão da
+  // barra fixa, então o primeiro problema também sobe como toast.
+  if (problemas.length) { erro.innerHTML = avisoHTML(problemas.join(' '), 'vermelho'); toast(problemas[0], 'erro'); return; }
   const notas = {};
   Object.keys(r.notas).forEach(k => { const n = r.notas[k]; if (temMarca(n.nota) || String(n.evidencia || '').trim()) notas[k] = { nota: temMarca(n.nota) ? n.nota : null, evidencia: String(n.evidencia || '').trim() }; });
   const reg = { id: r.id, alvoTipo: r.alvoTipo, alvoId: r.alvoId, momento: r.momento, data: r.data, avaliador: String(r.avaliador || '').trim(), notas, obs: r.obs || '' };
   if (Number.isSafeInteger(r._rev)) reg._rev = r._rev;
-  if (bt) { bt.disabled = true; bt.textContent = 'Salvando…'; }
+  botoes(true, 'Salvando…');
   try {
     await STORE.gravar('diagnosticos', reg);
     STORE.rascunho(r._chave, null);
@@ -1433,7 +1594,7 @@ async function salvarDiag() {
     toast('Diagnóstico salvo.', 'sucesso');
     location.hash = '#/diagnostico';
   } catch (e) {
-    if (bt) { bt.disabled = false; bt.textContent = 'Salvar diagnóstico'; }
+    botoes(false);
     erro.innerHTML = avisoHTML(mensagemDeErro(e, 'Não consegui salvar. O rascunho continua guardado neste aparelho'), 'vermelho');
   }
 }
