@@ -1,6 +1,6 @@
 # Jornada humanizada do Método V.O.F.
 
-Implementação local autorizada, ainda não publicada. Base: 76bbfca; ramo codex/jornada-humanizada.
+Implementação e publicação autorizadas pelo dono. Base: 76bbfca; ramo codex/jornada-humanizada.
 
 ## Entrega
 
@@ -18,7 +18,7 @@ A regra existente permanece: 30 XP no primeiro registro de cada missão e zero X
 
 ## Verificação em 24/10/2026
 
-- 233 testes passaram, nenhum falhou; inclui autenticação, papéis, XSS, dados, diagnóstico, foco, rascunhos, progresso entre telas e falha de armazenamento.
+- 255 testes passaram, nenhum falhou; inclui autenticação, papéis, XSS, dados, diagnóstico, foco, rascunhos, progresso entre telas e falha de armazenamento.
 - Sintaxe de app.js, metodo.js e sw.js conferida; git diff --check sem erro.
 - O projeto é estático e não possui etapa de build.
 - Prévia com API simulada e dados fictícios; nenhuma alteração produtiva.
@@ -27,6 +27,16 @@ A regra existente permanece: 30 XP no primeiro registro de cada missão e zero X
 - Imagens/ícones carregados, navegação para Diagnóstico e Plano conferida; console da prévia sem erros ou avisos.
 - Revisão independente corrigiu progresso de painel reutilizado, estado de rascunho e retorno de foco.
 
+## Percurso completo de aprendizagem
+
+- As 18 missões foram concluídas pelas ações da interface no Chrome em viewport de 390x844, com dados fictícios e API local simulada.
+- Retomada após a sexta missão: 180 XP e próxima missão correta. Conclusão: 18/18, 540 XP, nível Multiplicador e quatro conquistas.
+- Depois de recarregar, as 18 respostas foram reabertas e salvas novamente: textos preservados e pontuação ainda em 540 XP.
+- Os 20 slides foram percorridos pelo botão de avançar; as oito áreas principais foram abertas no celular. Nenhuma largura horizontal excedeu 390px; imagens carregadas e console sem erros no percurso.
+- O teste automatizado correspondente cobre entradas insuficientes, rascunhos de todas as missões, pontos únicos, transições de nível, conquistas e preservação dos dados fictícios da gestão.
+- O sistema atual possui os papéis admin e facilitador. O teste usa facilitador; “aluno” descreve o percurso de aprendizagem, não um novo papel de autorização.
+- Teste móvel feito por emulação de viewport, não em telefone físico. Download autenticado da apostila e sala sincronizada não são comprovados pela API simulada.
+
 ## Publicação
 
-Pendente da autorização do dono. Não houve push, deploy ou alteração de dados reais. Os arquivos preview-jornada.html/js são locais e ignorados; não fazem parte da entrega pública.
+Publicação autorizada após os testes acima. Esta revisão será enviada pela pipeline de GitHub Pages, com conferência do deploy e dos arquivos servidos em seguida. Os arquivos preview-jornada.html/js são locais e ignorados; não fazem parte da entrega pública. Nenhum dado real foi gravado nos testes.
