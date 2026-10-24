@@ -339,18 +339,18 @@
     trazerJornadaDaCentral();
     return normalizarJornada(lerJson(CHAVE_JORNADA)) || { xp: 0, respostas: {} };
   }
-  function jornadaPersistir(estado) { armazem.gravar(CHAVE_JORNADA, JSON.stringify(estado)); }
+  function jornadaPersistir(estado) { return armazem.gravar(CHAVE_JORNADA, JSON.stringify(estado)); }
   function jornadaRascunho(id, opcao, texto) {
     const estado = jornadaEstado(), anterior = estado.respostas[id] || {};
     estado.respostas[id] = Object.assign({}, anterior, { opcao: opcao || '', texto: String(texto || '').slice(0, 2000) });
-    jornadaPersistir(estado);
+    if (jornadaPersistir(estado)) emitir('vof-jornada-atualizada', { id, rascunho: true });
   }
   function jornadaRegistrar(id, opcao, texto) {
     const estado = jornadaEstado(), anterior = estado.respostas[id] || {}, novo = !anterior.concluida;
     estado.respostas[id] = Object.assign({}, anterior, { opcao, texto: String(texto || '').trim().slice(0, 2000), concluida: true, data: dataLocal() });
     if (novo) estado.xp += XP_MISSAO;
-    jornadaPersistir(estado);
-    return { ganho: novo ? XP_MISSAO : 0, xp: estado.xp };
+    const salva = jornadaPersistir(estado);
+    return { salva, ganho: salva && novo ? XP_MISSAO : 0, xp: salva ? estado.xp : jornadaEstado().xp };
   }
   // "Limpar" grava o estado vazio em vez de apagar a chave: apagar faria a cópia
   // da Central rodar de novo e ressuscitar o progresso que a pessoa limpou.
@@ -360,6 +360,31 @@
     if (xp >= 270) return 'Condutor';
     if (xp >= 90) return 'Praticante';
     return 'Explorador';
+  }
+  function jornadaResumo() {
+    const estado = jornadaEstado();
+    const concluida = m => Boolean(estado.respostas[m.id]?.concluida);
+    const feitas = MODULOS.filter(concluida).length;
+    const proximo = MODULOS.find(m => !concluida(m));
+    return {
+      xp: estado.xp, nivel: jornadaNivel(estado.xp), feitas, total: MODULOS.length,
+      percentual: Math.round(feitas / MODULOS.length * 100),
+      proximo: proximo ? { id: proximo.id, titulo: proximo.titulo, ordem: proximo.ordem } : null,
+      conquistas: [
+        { id: 'primeiro', titulo: 'Primeiro passo', atingida: feitas >= 1 },
+        { id: 'ritmo', titulo: 'Ganhando ritmo', atingida: feitas >= 3 },
+        { id: 'base', titulo: 'Base construída', atingida: MODULOS.filter(m => m.nivel === 1).every(concluida) },
+        { id: 'trilha', titulo: 'Trilha completa', atingida: feitas === MODULOS.length }
+      ]
+    };
+  }
+  // Ilustrações decorativas; o nome da área continua sendo texto acessível.
+  function arteArea(area) { return `<span class="vof-area-art vof-art-${esc(area)}" aria-hidden="true"></span>`; }
+  function areaModulo(mod) {
+    if (mod.id.startsWith('venda')) return 'venda';
+    if (mod.id.startsWith('operacao')) return 'operacao';
+    if (mod.id.startsWith('financas')) return 'financas';
+    return ['pessoas', 'pessoas2', 'gestores', 'gestores2', 'times', 'dono', 'dinamicas'].includes(mod.id) ? 'pessoas' : 'metodo';
   }
   function desafio(mod) {
     return {
@@ -379,10 +404,20 @@
     c.querySelector('[data-vof-question]').textContent = d.pergunta;
     c.querySelector('[data-vof-writing-label]').textContent = d.escrita;
     const area = c.querySelector('textarea'), opcoes = c.querySelector('[data-vof-opcoes]'), salvarBtn = c.querySelector('[data-vof-salvar]'), status = c.querySelector('[data-vof-status]');
+    const incentivo = el(`<div class="vof-mission-guide">${arteArea(areaModulo(mod))}<div><b>Um passo possível, no seu ritmo.</b><span>Escolha um caminho e anote o que pretende aplicar. Seu registro pode evoluir com a prática.</span></div></div>`);
+    c.querySelector('.vof-challenge-head').after(incentivo);
+    const passos = el('<ol class="vof-mission-steps" aria-label="Passos desta missão"><li data-passo="escolher">1 · Escolher</li><li data-passo="escrever">2 · Escrever</li><li data-passo="registrar">3 · Registrar</li></ol>');
+    incentivo.after(passos);
+    const conquista = el('<aside class="vof-celebration" hidden><span class="vof-conquista-simbolo" aria-hidden="true">✦</span><div><b data-conquista-titulo></b><p data-conquista-texto></p></div><button class="vof-btn" type="button" data-missao-seguinte>Próxima missão →</button></aside>');
+    c.appendChild(conquista);
     area.value = anterior.texto || '';
     const atualizar = () => {
       const pronto = Boolean(escolha) && area.value.trim().length >= 12;
       const concluida = Boolean((jornadaEstado().respostas[mod.id] || {}).concluida);
+      passos.querySelector('[data-passo="escolher"]').classList.toggle('feito', Boolean(escolha));
+      passos.querySelector('[data-passo="escrever"]').classList.toggle('feito', area.value.trim().length >= 12);
+      passos.querySelector('[data-passo="registrar"]').classList.toggle('feito', concluida);
+      c.querySelector('[data-vof-xp]').textContent = concluida ? '✓ 30 XP conquistados' : '+30 XP';
       opcoes.querySelectorAll('button').forEach(b => {
         const ativo = b.dataset.opcao === escolha;
         b.classList.toggle('selecionada', ativo);
@@ -390,7 +425,7 @@
       });
       salvarBtn.disabled = !pronto;
       salvarBtn.textContent = concluida ? 'Atualizar resposta · 0 XP' : 'Concluir missão · +30 XP';
-      status.textContent = concluida ? 'Missão concluída. Você pode atualizar a resposta quando quiser.' : pronto ? 'Pronto para registrar e ganhar XP.' : 'Escolha um caminho e escreva pelo menos 12 caracteres.';
+      status.textContent = concluida ? 'Missão concluída. Você pode atualizar a resposta quando quiser.' : pronto ? 'Seu próximo passo está escrito. Registre para continuar.' : 'Escolha um caminho e escreva pelo menos 12 caracteres.';
     };
     d.opcoes.forEach(o => {
       const b = el(`<button type="button" class="vof-challenge-option" aria-pressed="false"><b>${esc(o.titulo)}</b><small>${esc(o.detalhe)}</small></button>`);
@@ -402,8 +437,27 @@
     salvarBtn.onclick = () => {
       if (salvarBtn.disabled) return;
       const r = jornadaRegistrar(mod.id, escolha, area.value);
+      if (!r.salva) {
+        status.textContent = 'Não foi possível salvar neste navegador. Copie sua resposta antes de sair e confira o armazenamento do aparelho.';
+        conquista.hidden = true;
+        return;
+      }
+      atualizar();
       status.textContent = r.ganho ? `Missão concluída · +${r.ganho} XP. Total: ${r.xp} XP.` : 'Resposta atualizada. O XP desta missão já foi contabilizado.';
       salvarBtn.textContent = 'Atualizar resposta · 0 XP';
+      conquista.hidden = false;
+      conquista.classList.toggle('nova-conquista', Boolean(r.ganho));
+      const resumo = jornadaResumo();
+      conquista.querySelector('[data-conquista-titulo]').textContent = r.ganho ? (resumo.proximo ? 'Você deu mais um passo.' : 'Você percorreu toda a trilha!') : 'Seu aprendizado continua evoluindo.';
+      conquista.querySelector('[data-conquista-texto]').textContent = `${resumo.feitas} de ${resumo.total} missões registradas. Agora leve este combinado à prática e confira o resultado. Os pontos representam seu registro, não uma validação da empresa.`;
+      const seguir = conquista.querySelector('[data-missao-seguinte]');
+      seguir.textContent = resumo.proximo ? 'Próxima missão →' : 'Revisar minha jornada';
+      seguir.onclick = () => {
+        if (resumo.proximo) {
+          abrirApresentacao(APRESENTACAO.findIndex(m => m.id === resumo.proximo.id), 'aplicar');
+          focar(doc().querySelector('.modal-vof [data-vof-indice]'));
+        } else if (ativa) ativa.fechar();
+      };
       emitir('vof-jornada-atualizada', { id: mod.id, xp: r.xp });
     };
     atualizar();
@@ -420,21 +474,32 @@
   let pararOuvinteJornada = null;
   function jornadaPainel(layout) {
     const id = 'vof-jornada-' + uid();
-    const p = el(`<section class="vof-journey" aria-labelledby="${id}"><div class="vof-journey-head"><div><span class="vof-eyebrow">Jornada de aplicação</span><h2 id="${id}">Responda. Escreva. Prove.</h2><p>Cada módulo vira uma missão curta: escolha o próximo passo, registre a evidência e acompanhe a autonomia que está sendo construída.</p></div><div class="vof-journey-score"><b data-vof-journey-xp>0 XP</b><span data-vof-journey-level>Explorador</span></div></div><div class="vof-journey-progress" role="progressbar" aria-valuemin="0" aria-valuemax="${MODULOS.length}" aria-valuenow="0" aria-label="Missões do Método V.O.F. concluídas"><i data-vof-journey-bar></i></div><div class="vof-journey-footer"><span data-vof-journey-status>0 de ${MODULOS.length} missões concluídas</span><button type="button" class="vof-btn" data-vof-continuar>Começar missão 01</button><button type="button" class="vof-btn ghost" data-vof-limpar>Limpar progresso</button></div></section>`);
+    const p = el(`<section class="vof-journey" aria-labelledby="${id}"><div class="vof-journey-head"><div><span class="vof-eyebrow">Sua jornada de aplicação</span><h2 id="${id}">Um passo de cada vez. Do seu jeito.</h2><p>Explore, registre uma ideia e leve à prática. Você pode retomar ou revisar qualquer missão.</p></div><div class="vof-journey-score"><b data-vof-journey-xp>0 XP</b><span data-vof-journey-level>Explorador</span></div></div><div class="vof-journey-progress" role="progressbar" aria-valuemin="0" aria-valuemax="${MODULOS.length}" aria-valuenow="0" aria-label="Missões do Método V.O.F. concluídas"><i data-vof-journey-bar></i></div><div class="vof-journey-footer"><span data-vof-journey-status></span><button type="button" class="vof-btn" data-vof-continuar>Começar missão 01</button></div><ul class="vof-achievements" aria-label="Conquistas da jornada"></ul><details class="vof-journey-map"><summary>Ver todas as ${MODULOS.length} missões <span>Escolha seu próximo passo</span></summary><ol data-missoes></ol></details><details class="vof-journey-storage"><summary>Sobre seu progresso</summary><p>Respostas e pontos ficam neste navegador. Não são sincronizados entre aparelhos. Cada missão registrada vale ${XP_MISSAO} XP uma única vez; atualizar uma resposta não soma pontos. O XP acompanha o estudo, não certifica a aplicação na empresa.</p><button type="button" class="vof-btn ghost" data-vof-limpar>Limpar progresso</button></details></section>`);
     const xp = p.querySelector('[data-vof-journey-xp]'), nivel = p.querySelector('[data-vof-journey-level]'), bar = p.querySelector('[data-vof-journey-bar]'), progresso = p.querySelector('.vof-journey-progress'), status = p.querySelector('[data-vof-journey-status]'), continuar = p.querySelector('[data-vof-continuar]');
+    MODULOS.forEach(mod => {
+      const item = el(`<li><button type="button" class="vof-mission-link" data-missao="${esc(mod.id)}">${arteArea(areaModulo(mod))}<span><small>MISSÃO ${esc(mod.ordem)} · NÍVEL ${mod.nivel}</small><b>${esc(mod.titulo)}</b><span data-situacao></span></span><strong aria-hidden="true">→</strong></button></li>`);
+      item.querySelector('button').onclick = () => abrirApresentacao(APRESENTACAO.findIndex(m => m.id === mod.id), 'aplicar');
+      p.querySelector('[data-missoes]').appendChild(item);
+    });
     const pintar = () => {
-      const estado = jornadaEstado();
-      const feita = m => Boolean((estado.respostas[m.id] || {}).concluida);
-      const feitas = MODULOS.filter(feita).length, proximo = MODULOS.findIndex(m => !feita(m)), alvo = proximo < 0 ? 0 : proximo;
-      xp.textContent = estado.xp + ' XP';
-      nivel.textContent = jornadaNivel(estado.xp);
-      status.textContent = `${feitas} de ${MODULOS.length} missões concluídas · ${Math.round(feitas / MODULOS.length * 100)}% da trilha`;
-      bar.style.width = (feitas / MODULOS.length * 100) + '%';
-      progresso.setAttribute('aria-valuenow', String(feitas));
-      continuar.textContent = proximo < 0 ? 'Revisar primeira missão' : `Continuar missão ${MODULOS[alvo].ordem} · ${MODULOS[alvo].titulo}`;
-      continuar.onclick = () => abrirApresentacao(ABERTURAS.length + alvo, 'aplicar');
+      const estado = jornadaEstado(), resumo = jornadaResumo();
+      xp.textContent = resumo.xp + ' XP';
+      nivel.textContent = resumo.nivel;
+      status.textContent = `${resumo.feitas} de ${resumo.total} missões concluídas · ${resumo.percentual}% da trilha`;
+      bar.style.width = resumo.percentual + '%';
+      progresso.setAttribute('aria-valuenow', String(resumo.feitas));
+      continuar.textContent = resumo.proximo ? `${resumo.feitas ? 'Continuar' : 'Começar'} missão ${resumo.proximo.ordem} · ${resumo.proximo.titulo}` : 'Revisar primeira missão';
+      continuar.onclick = () => abrirApresentacao(resumo.proximo ? APRESENTACAO.findIndex(m => m.id === resumo.proximo.id) : ABERTURAS.length, 'aplicar');
+      const selos = p.querySelector('.vof-achievements');
+      selos.replaceChildren(...resumo.conquistas.map(c => el(`<li class="${c.atingida ? 'conquistada' : ''}"><span aria-hidden="true">${c.atingida ? '✦' : '◇'}</span><span><b>${esc(c.titulo)}</b><small>${c.atingida ? 'Conquistada' : 'A conquistar'}</small></span></li>`)));
+      p.querySelectorAll('[data-missao]').forEach(b => {
+        const r = estado.respostas[b.dataset.missao] || {};
+        b.classList.toggle('concluida', Boolean(r.concluida));
+        b.classList.toggle('proxima', b.dataset.missao === resumo.proximo?.id);
+        b.querySelector('[data-situacao]').textContent = r.concluida ? '✓ Registrada · 30 XP' : (r.texto || r.opcao) ? 'Em andamento · retomar' : 'Disponível · 30 XP';
+      });
       layout.querySelectorAll('.vof-module-card[data-vof-module-id]').forEach(card => {
-        const feito = Boolean((estado.respostas[card.dataset.vofModuleId] || {}).concluida);
+        const feito = Boolean(estado.respostas[card.dataset.vofModuleId]?.concluida);
         card.classList.toggle('concluida', feito);
         const sinal = card.querySelector('[data-vof-module-status]');
         if (sinal) sinal.textContent = feito ? '✓ Missão concluída' : 'Missão aberta';
@@ -445,9 +510,11 @@
       if (!confirmou) return;
       jornadaLimpar();
       pintar();
+      emitir('vof-jornada-atualizada', {});
     };
     if (pararOuvinteJornada) pararOuvinteJornada();
-    pararOuvinteJornada = ouvir('vof-jornada-atualizada', () => { if (p.isConnected) pintar(); });
+    // A casca reutiliza este painel ao voltar à aba Método. Atualiza também fora do DOM.
+    pararOuvinteJornada = ouvir('vof-jornada-atualizada', pintar);
     pintar();
     return p;
   }
@@ -462,7 +529,7 @@
   function moduloCard(mod) {
     const i = MODULOS.indexOf(mod), concluida = Boolean((jornadaEstado().respostas[mod.id] || {}).concluida);
     const b = el(`<button type="button" class="vof-module-card${concluida ? ' concluida' : ''}" data-vof-module-id="${esc(mod.id)}" aria-label="Apresentar módulo ${esc(mod.titulo)}">
-    <span class="vof-module-top"><span class="vof-module-icon" aria-hidden="true">${esc(mod.ic)}</span><span><span class="vof-module-code">${esc(mod.ordem)} · ${esc(mod.grupo)}</span></span><span class="vof-module-level">Nível ${mod.nivel}</span></span>
+    <span class="vof-module-top">${arteArea(areaModulo(mod))}<span><span class="vof-module-code">${esc(mod.ordem)} · ${esc(mod.grupo)}</span></span><span class="vof-module-level">Nível ${mod.nivel}</span></span>
     <b class="vof-module-title">${esc(mod.titulo)}</b><span class="vof-module-summary">${esc(mod.resumo)}</span>
     <span class="vof-module-footer"><span>${esc(mod.entrega)}</span><span class="vof-module-status" data-vof-module-status>${concluida ? '✓ Missão concluída' : 'Missão aberta'}</span><strong aria-hidden="true">Apresentar →</strong></span>
   </button>`);
@@ -508,11 +575,11 @@
   });
   function trilhaLeitura(opc) {
     const tituloId = uid();
-    const sec = el(`<section class="vof-guided" aria-labelledby="${tituloId}"><div class="vof-guided-head"><span class="vof-eyebrow">Trilha de leitura</span><h2 id="${tituloId}">Cinco partes. Uma decisão de cada vez.</h2><p>Escolha a parte que conversa com a sua empresa hoje. Leia a pergunta, veja um exemplo e teste só um próximo passo. O restante pode esperar.</p></div><div class="vof-guided-steps" role="group" aria-label="Escolher parte do método"></div><p class="vof-guided-swipe">Deslize para ver as cinco partes.</p><article class="vof-guided-content" aria-label="Parte selecionada"><div class="vof-guided-main"><span class="vof-guided-number" data-vof-parte-numero></span><h3 data-vof-parte-titulo aria-live="polite"></h3><p class="vof-guided-lead" data-vof-parte-chamada></p><div class="vof-guided-prompt"><b>Pergunta para começar</b><p data-vof-parte-pergunta></p></div><div class="vof-guided-example"><b>Imagine esta situação</b><p data-vof-parte-exemplo></p></div></div><div class="vof-guided-aside"><div><b>Primeiro passo</b><p data-vof-parte-passo></p></div><div><b>Como saber se andou</b><p data-vof-parte-prova></p></div><div><b>Cuidado com este atalho</b><p data-vof-parte-cuidado></p></div><div><b>Pulo do gato</b><p data-vof-parte-insight></p></div><div><b>Para aprofundar</b><ul data-vof-parte-temas></ul></div></div></article><details class="vof-guided-depth"><summary data-vof-parte-complemento></summary><div data-vof-parte-leituras></div></details><div class="vof-guided-footer"><div class="vof-guided-module-area"><b>Módulos relacionados</b><div class="vof-guided-modules" data-vof-parte-modulos aria-label="Módulos relacionados"></div></div><button type="button" class="vof-btn ghost" data-vof-parte-apostila>Abrir a apostila</button></div><p class="vof-guided-source">Roteiro de estudo inspirado nas cinco partes da edição essencial do Método V.O.F. Os exemplos são ilustrativos; use os dados da sua empresa para decidir.</p></section>`);
+    const sec = el(`<section class="vof-guided" aria-labelledby="${tituloId}"><div class="vof-guided-head"><span class="vof-eyebrow">Trilha de leitura</span><h2 id="${tituloId}">Cinco partes. Uma decisão de cada vez.</h2><p>Escolha a parte que conversa com a sua empresa hoje. Leia a pergunta, veja um exemplo e teste só um próximo passo. O restante pode esperar.</p></div><div class="vof-guided-steps" role="group" aria-label="Escolher parte do método"></div><p class="vof-guided-swipe">Escolha uma área para explorar.</p><article class="vof-guided-content" aria-label="Parte selecionada"><div class="vof-guided-main"><span class="vof-guided-number" data-vof-parte-numero></span><h3 data-vof-parte-titulo aria-live="polite"></h3><p class="vof-guided-lead" data-vof-parte-chamada></p><div class="vof-guided-prompt"><b>Pergunta para começar</b><p data-vof-parte-pergunta></p></div><div class="vof-guided-example"><b>Imagine esta situação</b><p data-vof-parte-exemplo></p></div></div><div class="vof-guided-aside"><div><b>Primeiro passo</b><p data-vof-parte-passo></p></div><div><b>Como saber se andou</b><p data-vof-parte-prova></p></div><div><b>Cuidado com este atalho</b><p data-vof-parte-cuidado></p></div><div><b>Pulo do gato</b><p data-vof-parte-insight></p></div><div><b>Para aprofundar</b><ul data-vof-parte-temas></ul></div></div></article><details class="vof-guided-depth"><summary data-vof-parte-complemento></summary><div data-vof-parte-leituras></div></details><div class="vof-guided-footer"><div class="vof-guided-module-area"><b>Módulos relacionados</b><div class="vof-guided-modules" data-vof-parte-modulos aria-label="Módulos relacionados"></div></div><button type="button" class="vof-btn ghost" data-vof-parte-apostila>Abrir a apostila</button></div><p class="vof-guided-source">Roteiro de estudo inspirado nas cinco partes da edição essencial do Método V.O.F. Os exemplos são ilustrativos; use os dados da sua empresa para decidir.</p></section>`);
     const botoes = sec.querySelector('.vof-guided-steps');
     const modulos = sec.querySelector('[data-vof-parte-modulos]');
     PARTES_GUIADAS.forEach(parte => {
-      const b = el(`<button type="button" class="vof-guided-step" data-vof-parte="${esc(parte.id)}" aria-pressed="false"><span>${esc(parte.numero)}</span><b>${esc(parte.nome)}</b></button>`);
+      const b = el(`<button type="button" class="vof-guided-step" data-vof-parte="${esc(parte.id)}" aria-pressed="false">${arteArea(parte.id)}<span class="vof-guided-step-copy"><small>${esc(parte.numero)}</small><b>${esc(parte.nome)}</b></span></button>`);
       b.onclick = () => selecionar(parte.id);
       botoes.appendChild(b);
     });
@@ -772,6 +839,9 @@
     }
     function devolverFoco() {
       if (anteriorFoco && anteriorFoco.isConnected && anteriorFoco !== D.body) { focar(anteriorFoco); return; }
+      // O CTA da jornada muda de texto ao avançar. Seu ID mantém o retorno de foco.
+      const mesmoId = anteriorFoco && anteriorFoco.id ? D.getElementById(anteriorFoco.id) : null;
+      if (mesmoId) { focar(mesmoId); return; }
       // A tela de trás pode ter sido redesenhada: procura o botão com o mesmo nome.
       const substituto = nomeAnterior ? [...D.querySelectorAll('button,select,[role=button]')].find(x => x.tagName === (anteriorFoco && anteriorFoco.tagName) && (x.getAttribute('aria-label') || x.textContent.trim()) === nomeAnterior) : null;
       focar(substituto || D.querySelector('.vof-layout [role="tab"][aria-selected="true"]'));
@@ -919,7 +989,7 @@
 
     /* Primeiro um caminho de leitura para o empresário; sala, aplicação e
        biblioteca continuam disponíveis sem competir com o primeiro passo. */
-    const hero = el('<section class="vof-hero vof-cover"><div class="vof-cover-main"><div class="vof-brand-line"><img class="vof-author-logo" src="./assets/vof/logo-leonardo-goncalves.png" alt="Leonardo Gonçalves"><span class="vof-brand-rule"></span><span class="vof-brand-name">MÉTODO V.O.F.</span></div><span class="vof-eyebrow">Formação em gestão e desenvolvimento · Níveis 1 e 2</span><h2>Um negócio conectado.<br>Uma equipe capaz.<br><em>Um resultado que fica.</em></h2><p>Conecte a promessa da venda, a entrega da operação e a realidade do caixa. Desenvolva pessoas e gestores para que a empresa funcione além do dono.</p><div class="vof-cover-pillars" aria-label="Os três pilares"><span>V <b>Venda</b></span><span>O <b>Operação</b></span><span>F <b>Finanças</b></span></div><div class="vof-hero-actions"><button type="button" class="vof-btn" data-vof-ir-trilha>Começar pela trilha</button><button type="button" class="vof-btn ghost" data-vof-apresentar>Abrir apresentação</button><button type="button" class="vof-btn ghost" data-vof-caderno>Abrir a apostila</button></div></div><div class="vof-cover-figure vof-mark-figure"><img src="./assets/vof/logo-vof.png" alt="Logomarca do Método V.O.F.: pirâmide V, O e F sustentada por Pessoas e Gestores." loading="eager"></div></section>');
+    const hero = el('<section class="vof-hero vof-cover"><div class="vof-cover-main"><div class="vof-brand-line"><img class="vof-author-logo" src="./assets/vof/logo-leonardo-goncalves.png" alt="Leonardo Gonçalves"><span class="vof-brand-rule"></span><span class="vof-brand-name">MÉTODO V.O.F.</span></div><span class="vof-eyebrow">Formação em gestão e desenvolvimento · Níveis 1 e 2</span><h2>Um negócio conectado.<br>Uma equipe capaz.<br><em>Um resultado que fica.</em></h2><p>Conecte a promessa da venda, a entrega da operação e a realidade do caixa. Desenvolva pessoas e gestores para que a empresa funcione além do dono.</p><div class="vof-cover-pillars" aria-label="Os três pilares"><span>V <b>Venda</b></span><span>O <b>Operação</b></span><span>F <b>Finanças</b></span></div><div class="vof-hero-actions"><button type="button" class="vof-btn" data-vof-ir-trilha>Começar pela trilha</button><button type="button" class="vof-btn ghost" data-vof-apresentar>Abrir apresentação</button><button type="button" class="vof-btn ghost" data-vof-caderno>Abrir a apostila</button></div></div><div class="vof-cover-figure vof-human-figure"><img src="./assets/vof/jornada-equipe.webp" alt="Ilustração de pessoas construindo juntas o próximo passo da empresa." loading="eager"><span>Gente que aprende. Negócio que evolui.</span></div></section>');
     hero.querySelector('[data-vof-ir-trilha]').onclick = () => {
       const alvo = m.querySelector('.vof-guided');
       if (alvo && typeof alvo.scrollIntoView === 'function') alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -927,6 +997,7 @@
     };
     hero.querySelector('[data-vof-apresentar]').onclick = () => abrirApresentacao(0);
     hero.querySelector('[data-vof-caderno]').onclick = () => abrirApostila('capa');
+    panes.visao.appendChild(jornadaPainel(m));
     panes.visao.appendChild(hero);
     panes.visao.appendChild(el('<section class="vof-reading-guide"><div><span class="vof-eyebrow">Um convite para começar</span><h2>Você não precisa resolver a empresa inteira hoje.</h2><p>Comece por uma situação que realmente aconteceu. Entenda a ligação entre as áreas, escolha uma mudança pequena e volte a ela na próxima semana.</p></div><div class="vof-reading-rule"><b>1 · Observe</b><span>O que foi prometido, feito e recebido? Separe fatos de impressões.</span><b>2 · Escolha</b><span>Qual é o ponto que mais limita o resultado agora?</span><b>3 · Combine</b><span>Feche com decisão, dono, data e dado. Depois confira o que mudou.</span></div></section>'));
     panes.visao.appendChild(trilhaLeitura(opc));
@@ -934,9 +1005,6 @@
     const dentro = aprofundar.querySelector('[data-vof-aprofundar]');
     const abertura = el('<section class="vof-opening"><div class="vof-section-head"><div><span class="vof-eyebrow">A primeira conversa</span><h2>Primeiro, entenda o que sustenta o resultado.</h2><p>Duas ideias abrem a conversa: Pessoas e Gestores sustentam o negócio; Venda, Operação e Finanças precisam funcionar juntas.</p></div><button type="button" class="vof-btn ghost" data-vof-abertura>▶ Apresentar esta abertura</button></div><div class="vof-opening-grid"><article><span class="vof-opening-number">01 · TEORIA</span><h3>A pirâmide invertida</h3><p>O resultado aparece no topo. Pessoas e Gestores sustentam, pelos lados, Venda, Operação e Finanças.</p><b>Primeiro: enxergar o que sustenta.</b></article><article><span class="vof-opening-number">02 · DEFINIÇÃO</span><h3>O que é o V.O.F.</h3><p>Venda, Operação e Finanças não são assuntos isolados. São um único sistema que precisa prometer, entregar e cuidar do caixa.</p><b>Depois: dar nome ao sistema.</b></article></div></section>');
     abertura.querySelector('[data-vof-abertura]').onclick = () => abrirApresentacao(0);
-    const progresso = el('<details class="vof-journey-details"><summary>Quando estiver pronto, registre sua aplicação <span>Missões e progresso guardados neste navegador</span></summary></details>');
-    progresso.appendChild(jornadaPainel(m));
-    panes.visao.appendChild(progresso);
     dentro.appendChild(abertura);
     dentro.appendChild(el(`<div class="vof-metrics">${kpi('Módulos', MODULOS.length, 'Níveis 1 e 2', 'v')}${kpi('Práticas N1', PRATICAS.length, 'cinco dimensões', null)}${kpi('Ciclos', '90 → 180', 'dias de implantação', 'a')}${kpi('Ponto de partida', 'Ação', 'não só conteúdo', 'v')}</div>`));
     dentro.appendChild(secao('Primeiros módulos', 'Abra um tema de cada vez. A trilha acima ajuda a escolher por onde entrar.'));
@@ -1021,6 +1089,6 @@
     apresentacaoAtual: () => (ativa && ativa.aberta ? ativa : null),
     fecharApresentacao: () => { if (ativa) ativa.fechar(); },
     ouvir,
-    jornada: Object.freeze({ CHAVE: CHAVE_JORNADA, estado: jornadaEstado, nivel: jornadaNivel })
+    jornada: Object.freeze({ CHAVE: CHAVE_JORNADA, estado: jornadaEstado, nivel: jornadaNivel, resumo: jornadaResumo })
   });
 })(typeof window !== 'undefined' ? window : globalThis);

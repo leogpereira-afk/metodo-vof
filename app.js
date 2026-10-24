@@ -57,6 +57,22 @@ const AREAS = [
   ['inicio', 'Início'], ['metodo', 'Método'], ['dinamicas', 'Dinâmicas e APN'], ['turmas', 'Turmas e empresas'],
   ['diagnostico', 'Diagnóstico'], ['plano', 'Plano de 90 dias'], ['apostila', 'Apostila'], ['apresentacao', 'Apresentação'],
 ];
+// Desenhos externos e decorativos; nenhuma marcação SVG entra no corpo da página.
+const ICONES_AREAS = Object.freeze(["inicio","metodo","dinamicas","turmas","diagnostico","plano","apostila","apresentacao","venda","operacao","financas","pessoas","gestores","conquista"]);
+function iconeArea(id) {
+  const nome = ICONES_AREAS.includes(id) ? id : 'metodo';
+  return '<span class="icone-area icone-' + nome + '" aria-hidden="true"></span>';
+}
+const CAMINHO_JORNADA = [
+  ['metodo', 'Aprender', 'Conheça o método'], ['diagnostico', 'Diagnosticar', 'Encontre a restrição'],
+  ['turmas', 'Organizar', 'Reúna turma e empresa'], ['plano', 'Aplicar', 'Defina dono, data e dado'],
+  ['diagnostico', 'Revisar', 'Compare as evidências'],
+];
+function htmlCaminhoJornada(ativa) {
+  const etapaAtual = ativa === 'diagnostico' ? 1 : CAMINHO_JORNADA.findIndex(([rota]) => rota === ativa);
+  return '<nav class="caminho-jornada" aria-label="Etapas do trabalho, navegação"><ol>' + CAMINHO_JORNADA.map(([rota, nome, dica], i) =>
+    '<li><a href="#/' + rota + '"' + (i === etapaAtual ? ' aria-current="step"' : '') + '><span class="caminho-numero">' + (i + 1) + '</span><span><b>' + nome + '</b><small>' + dica + '</small></span></a></li>').join('') + '</ol></nav>';
+}
 
 /* ══════════ estado de interface ══════════ */
 const ESTADO = {
@@ -261,7 +277,7 @@ function htmlCab(ativa) {
     '<button type="button" class="botao fantasma-claro cab-sair" data-sair>Sair</button>' +
     '</div>' +
     '<nav class="abas" aria-label="Áreas do sistema">' +
-    AREAS.map(([id, nome]) => '<a href="#/' + id + '"' + (id === ativa ? ' class="ativa" aria-current="page"' : '') + '>' + esc(nome) + '</a>').join('') +
+    AREAS.map(([id, nome]) => '<a href="#/' + id + '"' + (id === ativa ? ' class="ativa" aria-current="page"' : '') + '>' + iconeArea(id) + '<span>' + esc(nome) + '</span></a>').join('') +
     '</nav>' +
     '<div class="faixa-sync" id="faixa-sync" role="status"><span data-faixa-texto>' + esc(textoFaixa()) + '</span><button type="button" class="botao mini fantasma" data-atualizar>Atualizar</button></div>' +
     '</header>';
@@ -276,7 +292,7 @@ function ligarCab() {
   if (at) at.addEventListener('click', () => { STORE.atualizar(); if (ESTADO.rota.nome === 'dinamicas') recarregarConteudo(); });
   pintarFaixa();
 }
-const pagina = (ativa, miolo, classe) => htmlCab(ativa) + '<main class="miolo' + (classe ? ' ' + classe : '') + '" id="miolo">' + miolo + '</main>';
+const pagina = (ativa, miolo, classe) => htmlCab(ativa) + '<main class="miolo' + (classe ? ' ' + classe : '') + '" id="miolo">' + (['turmas', 'diagnostico', 'plano', 'dinamicas'].includes(ativa) ? htmlCaminhoJornada(ativa) : '') + miolo + '</main>';
 const tituloArea = (h1, p) => '<div class="titulo-area"><h1>' + esc(h1) + '</h1>' + (p ? '<p>' + esc(p) + '</p>' : '') + '</div>';
 // Zero não é resultado: sem nenhuma carga do servidor, lista vazia diz isso.
 function vazioHonesto(texto) {
@@ -565,6 +581,39 @@ function irParaMarcos() {
   if (titulo && typeof titulo.focus === 'function') { try { titulo.focus({ preventScroll: true }); } catch { titulo.focus(); } }
 }
 
+function htmlAreasHumanas() {
+  const areas = [
+    ['venda', 'Venda', 'Entender, prometer e conquistar.', 'comercial'],
+    ['operacao', 'Operação', 'Transformar promessa em entrega.', 'operacao'],
+    ['financas', 'Finanças', 'Cuidar da margem e do caixa.', 'financas'],
+    ['pessoas', 'Pessoas', 'Aprender e crescer em equipe.', 'pessoas'],
+    ['gestores', 'Gestores', 'Dar direção e desenvolver o time.', 'metodo'],
+  ];
+  return '<section class="inicio-areas" aria-labelledby="inicio-areas-titulo"><div class="inicio-secao-topo"><div><p class="sobretitulo">Cinco áreas, um negócio</p><h2 id="inicio-areas-titulo">Onde você quer evoluir?</h2></div><a class="link-seta" href="#/metodo">Explorar o método</a></div><div class="areas-humanas">' + areas.map(([id, nome, dica, imagem]) =>
+    '<a class="area-humana area-' + id + '" href="#/metodo/' + id + '"><span class="area-humana-imagem" aria-hidden="true"><img src="./assets/vof/jornada-' + imagem + '.webp" width="160" height="160" alt="" loading="lazy"></span><span class="area-humana-texto"><b>' + nome + '</b><small>' + dica + '</small></span><span class="area-humana-seta" aria-hidden="true">↗</span></a>').join('') + '</div></section>';
+}
+function pintarJornadaInicio() {
+  const alvo = $('#inicio-jornada');
+  const m = metodo();
+  if (!alvo || ESTADO.rota.nome !== 'inicio' || !m || !m.jornada || typeof m.jornada.resumo !== 'function') return;
+  const r = m.jornada.resumo();
+  const concluida = r.total > 0 && r.feitas === r.total;
+  alvo.innerHTML = '<div class="inicio-jornada-conteudo"><span class="inicio-jornada-emblema" aria-hidden="true">' + iconeArea(concluida ? 'conquista' : 'plano') + '</span><div><p class="sobretitulo">Sua jornada de aprendizagem</p><h2>' + (concluida ? 'Você completou as missões. Continue praticando.' : r.feitas ? 'Bom ter você de volta. Vamos ao próximo passo?' : 'Uma pequena ação pode começar uma grande mudança.') + '</h2><p class="inicio-proxima">' + (r.proximo ? 'Próxima missão: <b>' + esc(r.proximo.titulo) + '</b>' : 'Revisite suas respostas e leve os aprendizados para a rotina.') + '</p></div></div>' +
+    '<div class="inicio-jornada-avanco"><div class="inicio-jornada-numeros"><strong>' + esc(r.xp) + ' <small>XP</small></strong><span>' + esc(r.nivel) + '</span><b>' + esc(r.feitas) + '<small> / ' + esc(r.total) + ' missões</small></b></div>' +
+    '<progress max="100" value="' + esc(r.percentual) + '" aria-label="Missões concluídas">' + esc(r.percentual) + '%</progress>' +
+    (r.proximo ? '<button id="inicio-jornada-acao" class="botao" type="button" data-inicio-missao="' + esc(r.proximo.id) + '">' + (r.feitas ? 'Continuar minha jornada' : 'Começar minha jornada') + ' <span aria-hidden="true">→</span></button>' : '<a id="inicio-jornada-acao" class="botao" href="#/metodo">Revisar o que aprendi</a>') +
+    '<small class="inicio-jornada-local">XP e respostas de aprendizagem ficam neste navegador.</small></div>' +
+    '<div class="inicio-conquistas" aria-label="Conquistas de aprendizagem">' + (r.conquistas || []).map(c => '<span class="inicio-conquista' + (c.atingida ? ' atingida' : '') + '">' + iconeArea('conquista') + '<span>' + esc(c.titulo) + '<small>' + (c.atingida ? 'Conquistada' : 'A conquistar') + '</small></span></span>').join('') + '</div>';
+  const continuar = $('[data-inicio-missao]', alvo);
+  if (continuar) continuar.addEventListener('click', () => {
+    const id = continuar.getAttribute('data-inicio-missao');
+    // A apresentação contém uma abertura antes das missões: o ID decide o índice.
+    const indice = Array.isArray(m.APRESENTACAO) ? m.APRESENTACAO.findIndex(mod => mod.id === id) : -1;
+    if (indice >= 0 && typeof m.abrirApresentacao === 'function') m.abrirApresentacao(indice, 'aplicar', { abrirComplemento, abrirApostila: irParaApostila });
+    else location.hash = '#/metodo/' + encodeURIComponent(id);
+  });
+}
+
 function renderInicio(app) {
   const turmas = STORE.col('turmas');
   const andamento = ordenarPorNome(turmas.filter(t => t.status === 'em andamento'));
@@ -596,17 +645,24 @@ function renderInicio(app) {
     '<section class="proposito' + (frase ? ' com-frase' : '') + '" aria-labelledby="proposito-titulo">' +
     '<div class="proposito-principal">' +
     '<p class="proposito-ola">' + (ola ? 'Olá, ' + esc(ola) + '.' : 'Olá.') + '</p>' +
-    '<h1 class="proposito-titulo" id="proposito-titulo">' + htmlTituloProposito(PROPOSITO.titulo) + '</h1>' +
-    '<p class="proposito-texto">' + esc(PROPOSITO.texto) + '</p>' +
+    '<h1 class="proposito-titulo" id="proposito-titulo">' + htmlTituloProposito(PROPOSITO.titulo) + '</h1></div>' +
+    '<figure class="proposito-imagem"><img src="./assets/vof/jornada-equipe.webp" width="960" height="640" alt="Imagem ilustrativa de pessoas colaborando na evolução de um negócio"><figcaption>Aprender juntos. Aplicar de verdade.</figcaption></figure>' +
+    '<div class="proposito-convite"><p class="proposito-abertura">Um passo por vez, com clareza, prática e pessoas no centro.</p>' +
+    '<a class="proposito-atalho" href="#/metodo">Conheça sua jornada ' + iconeArea('metodo') + '</a></div>' +
+    '<details class="proposito-detalhes"><summary>Nosso propósito e uma inspiração para hoje</summary><div class="proposito-detalhes-grade"><div><p class="proposito-texto">' + esc(PROPOSITO.texto) + '</p>' +
     '<div class="proposito-chamada"><p>' + esc(PROPOSITO.chamada) + '</p>' +
-    '<button type="button" class="botao" data-ir-marcos>Conferir os próximos marcos</button></div>' +
-    '</div>' + frase + '</section>' +
+    '<button type="button" class="botao suave" data-ir-marcos>Conferir os próximos marcos</button></div>' +
+    '</div>' + frase + '</div></details></section>' +
     (m ? '' : avisoHTML('O conteúdo do método (metodo.js) não carregou. Turmas, diagnósticos e planos continuam funcionando; recarregue a página para trazer o método.', 'amarelo')) +
-    '<div class="acoes inicio-acoes">' + (m ? '<a class="botao" href="#/metodo">Estudar o método, passo a passo</a>' : '') + '<a class="botao suave" href="#/apresentacao">Abrir a apresentação</a>' +
-    (podeEditar() ? '<a class="botao suave" href="#/diagnostico/novo">Novo diagnóstico</a><button type="button" class="botao suave" data-nova-turma>Nova turma</button>' : '') +
+    (m && m.jornada && typeof m.jornada.resumo === 'function' ? '<section class="inicio-jornada" id="inicio-jornada" aria-label="Sua jornada de aprendizagem"></section>' : '') +
+    (m ? htmlAreasHumanas() : '') + htmlCaminhoJornada('inicio') +
+    '<div class="inicio-secao-topo inicio-gestao-topo"><div><p class="sobretitulo">Do aprendizado à prática</p><h2>Acompanhe o que foi combinado</h2></div></div>' +
+    '<div class="acoes inicio-acoes">' + (m ? '<a class="botao fantasma" href="#/metodo">' + iconeArea('metodo') + 'Estudar o método</a>' : '') + '<a class="botao fantasma" href="#/apresentacao">' + iconeArea('apresentacao') + 'Abrir a apresentação</a>' +
+    (podeEditar() ? '<a class="botao suave" href="#/diagnostico/novo">' + iconeArea('diagnostico') + 'Novo diagnóstico</a><button type="button" class="botao suave" data-nova-turma>' + iconeArea('turmas') + 'Nova turma</button>' : '') +
     '</div>' +
     '<div class="resumo-grade">' + cartaoTurmas + cartaoMarcos + cartaoDiag + '</div>');
   ligarCab();
+  pintarJornadaInicio();
   const nt = $('[data-nova-turma]'); if (nt) nt.addEventListener('click', () => abrirFormTurma(null));
   const im = $('[data-ir-marcos]'); if (im) im.addEventListener('click', irParaMarcos);
 }
@@ -2347,6 +2403,8 @@ function renderApp(opcoes) {
   // slide em que estava, não ao primeiro.
   ESTADO.apres.indice = indiceLembrado();
   window.addEventListener('hashchange', () => renderApp());
+  // Um único ouvinte para a casca: atualiza apenas o resumo, sem fechar a missão.
+  window.addEventListener('vof-jornada-atualizada', pintarJornadaInicio);
   document.addEventListener('keydown', teclaGlobal);
   document.addEventListener('fullscreenchange', () => { const b = $('[data-p=tela]'); if (b) b.textContent = document.fullscreenElement ? 'Sair da tela cheia' : 'Tela cheia'; });
   renderApp();

@@ -9,12 +9,28 @@
 //
 // A API NUNCA passa por aqui (supabase.co vai direto) e só o GET do próprio
 // site é tratado: fontes e qualquer outro endereço seguem o caminho normal.
-const CACHE = 'vof-shell-v3';
+const CACHE = 'vof-shell-v4';
 const SHELL = ['./', './index.html', './styles.css', './metodo.css', './config.js', './auth.js',
   './store.js', './metodo.js', './app.js', './manifest.webmanifest', './favicon.svg', './icone-192.png', './icone-512.png',
   // As duas marcas da capa e da sala: sem elas, fora do ar a capa perde a logo.
   // As páginas do caderno (p0xx.jpg) carregam sob demanda e entram no cache ao abrir.
-  './assets/vof/logo-vof.png', './assets/vof/logo-leonardo-goncalves.png'];
+  './assets/vof/logo-vof.png', './assets/vof/logo-leonardo-goncalves.png',
+  './assets/vof/jornada-equipe.webp', './assets/vof/jornada-metodo.webp', './assets/vof/jornada-pessoas.webp',
+  './assets/vof/jornada-comercial.webp', './assets/vof/jornada-operacao.webp', './assets/vof/jornada-financas.webp',
+  './assets/vof/nav-apostila.svg',
+  './assets/vof/nav-apresentacao.svg',
+  './assets/vof/nav-conquista.svg',
+  './assets/vof/nav-diagnostico.svg',
+  './assets/vof/nav-dinamicas.svg',
+  './assets/vof/nav-financas.svg',
+  './assets/vof/nav-gestores.svg',
+  './assets/vof/nav-inicio.svg',
+  './assets/vof/nav-metodo.svg',
+  './assets/vof/nav-operacao.svg',
+  './assets/vof/nav-pessoas.svg',
+  './assets/vof/nav-plano.svg',
+  './assets/vof/nav-turmas.svg',
+  './assets/vof/nav-venda.svg'];
 
 self.addEventListener('install', e => {
   // cache:'reload' busca da rede, não do cache HTTP do navegador (o Pages

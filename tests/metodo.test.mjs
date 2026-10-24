@@ -218,14 +218,14 @@ test('render desenha as quatro abas e navega por teclado', () => {
   assert.deepEqual([...document.querySelectorAll('.vof-architecture b')].map(x => x.textContent), ['Venda', 'Operação', 'Finanças', 'Pessoas', 'Gestores']);
 });
 
-test('visão geral começa pela leitura guiada e preserva a biblioteca e a jornada', () => {
+test('visão geral destaca a jornada e preserva a leitura guiada e a biblioteca', () => {
   const { V, app, document } = montar();
   V.render(app, { cabecalho: false });
   assert.equal(document.querySelector('.vof-topo'), null);
   const visao = document.querySelector('[role=tabpanel]');
   const ordem = [...visao.children].map(x => x.className.split(' ').find(c => c.startsWith('vof-')));
-  assert.deepEqual(ordem, ['vof-hero', 'vof-reading-guide', 'vof-guided', 'vof-journey-details', 'vof-overview-details']);
-  assert.ok(visao.querySelector('.vof-journey-details .vof-journey'));
+  assert.deepEqual(ordem, ['vof-journey', 'vof-hero', 'vof-reading-guide', 'vof-guided', 'vof-overview-details']);
+  assert.equal(visao.querySelector('.vof-journey').closest('details'), null);
   const dentro = [...visao.querySelector('[data-vof-aprofundar]').children].map(x => x.className);
   assert.deepEqual(dentro, ['vof-opening', 'vof-metrics', 'vof-section-head', 'vof-module-grid', 'vof-visuals', 'vof-section-head', 'vof-architecture', 'vof-section-head', 'vof-cycle', 'vof-principles', 'vof-section-head', 'vof-timeline']);
   assert.equal(visao.querySelectorAll('.vof-module-grid .vof-module-card').length, 6);
@@ -552,4 +552,94 @@ test('metodo.css só usa tokens próprios e não conta com o modal da Central', 
   assert.deepEqual(alheios, []);
   assert.doesNotMatch(CSS, /#modais|\.fundo\b|(?<![\w-])\.btn\b|(?<![\w-])\.kpi\b/);
   assert.match(CSS, /prefers-color-scheme:dark/);
+});
+
+test('resumo conta só missões conhecidas; rascunho não conquista pontos ou selos', () => {
+  const memoria = new Map([['vof_jornada_v1', JSON.stringify({ xp: 30, respostas: { arquitetura: { concluida: true }, conscientizar: { texto: 'Um próximo passo em rascunho' }, outro: { concluida: true } } })]]);
+  const { V, app, document } = montar({ memoria });
+  const r = V.jornada.resumo();
+  assert.equal(r.feitas, 1); assert.equal(r.percentual, 6); assert.equal(r.proximo.id, 'conscientizar');
+  assert.equal(r.conquistas.filter(c => c.atingida).length, 1);
+  V.render(app);
+  assert.equal(document.querySelectorAll('[data-missao]').length, 18);
+  assert.match(document.querySelector('[data-missao="conscientizar"]').textContent, /Em andamento/);
+  document.querySelector('[data-missao="financas"]').click();
+  assert.equal(document.querySelector('.vof-presenter').dataset.modo, 'aplicar');
+  assert.equal(V.jornada.estado().xp, 30, 'abrir missão não pontua');
+});
+
+test('conquista acompanha registro persistido, avança à próxima e preserva após recarregar', () => {
+  const amb = abrir(2, 'aplicar');
+  amb.q('.vof-challenge-option').click();
+  amb.q('textarea').value = 'Conferir a entrega com quem executa e registrar a evidência';
+  amb.q('textarea').oninput();
+  assert.equal(amb.q('.vof-celebration').hidden, true);
+  amb.q('[data-vof-salvar]').click();
+  assert.equal(amb.q('.vof-celebration').hidden, false);
+  assert.match(amb.q('[data-conquista-texto]').textContent, /1 de 18/);
+  assert.equal(amb.q('[data-passo="registrar"]').classList.contains('feito'), true);
+  amb.q('[data-missao-seguinte]').click();
+  assert.equal(titulo(amb), amb.V.MODULOS[1].titulo);
+  assert.equal(amb.document.activeElement, amb.q('[data-vof-indice]'));
+  assert.equal(amb.V.jornada.estado().xp, 30);
+  const nova = montar({ memoria: amb.memoria });
+  assert.equal(nova.V.jornada.resumo().feitas, 1);
+  assert.equal(nova.V.jornada.resumo().proximo.id, amb.V.MODULOS[1].id);
+  assert.match(nova.V.jornada.estado().respostas.arquitetura.texto, /Conferir a entrega/);
+});
+
+test('falha de armazenamento mantém texto e não celebra nem soma XP', () => {
+  const amb = abrir(2, 'aplicar');
+  amb.ctx.localStorage.setItem = () => { throw new Error('QuotaExceededError'); };
+  amb.q('.vof-challenge-option').click();
+  amb.q('textarea').value = 'Minha resposta precisa permanecer visível se falhar';
+  amb.q('textarea').oninput();
+  amb.q('[data-vof-salvar]').click();
+  assert.equal(amb.q('.vof-celebration').hidden, true);
+  assert.match(amb.q('[data-vof-status]').textContent, /Não foi possível salvar/);
+  assert.match(amb.q('textarea').value, /permanecer visível/);
+  assert.equal(amb.V.jornada.resumo().xp, 0);
+  assert.equal(amb.V.jornada.resumo().feitas, 0);
+});
+
+test('trilha completa pode ser revisada, sem prometer nova pontuação', () => {
+  const modelo = montar().V;
+  const respostas = Object.fromEntries(modelo.MODULOS.map(m => [m.id, { concluida: true, texto: 'Evidência de teste registrada', opcao: 'evidencia' }]));
+  const memoria = new Map([['vof_jornada_v1', JSON.stringify({ xp: 540, respostas })]]);
+  const { V, app, document } = montar({ memoria });
+  assert.equal(V.jornada.resumo().proximo, null);
+  assert.equal(V.jornada.resumo().percentual, 100);
+  assert.equal(V.jornada.resumo().conquistas.filter(c => c.atingida).length, 4);
+  V.render(app);
+  document.querySelector('[data-vof-continuar]').click();
+  assert.match(document.querySelector('[data-vof-salvar]').textContent, /0 XP/);
+  assert.equal(V.jornada.estado().xp, 540);
+});
+
+test('painel reutilizado atualiza conquistas mesmo quando a missão é concluída em outra tela', () => {
+  const amb = montar();
+  amb.V.render(amb.app);
+  const painel = amb.app.firstElementChild;
+  painel.remove();
+  amb.V.abrirApresentacao(2, 'aplicar');
+  const q = s => amb.document.querySelector(s);
+  q('.vof-challenge-option').click();
+  q('textarea').value = 'Uma evidência de teste para a missão fora do painel'; q('textarea').oninput();
+  q('[data-vof-salvar]').click();
+  amb.V.fecharApresentacao();
+  amb.app.appendChild(painel);
+  assert.match(q('[data-vof-journey-status]').textContent, /^1 de 18/);
+  assert.equal(q('[data-missao="arquitetura"]').classList.contains('concluida'), true);
+});
+
+test('rascunho salvo aparece como em andamento no mapa ao fechar a missão', () => {
+  const amb = montar();
+  amb.V.render(amb.app);
+  amb.document.querySelector('[data-missao="arquitetura"]').click();
+  const area = amb.document.querySelector('textarea');
+  area.value = 'Ainda estou elaborando meu próximo passo'; area.oninput();
+  amb.V.fecharApresentacao();
+  assert.match(amb.document.querySelector('[data-missao="arquitetura"]').textContent, /Em andamento/);
+  assert.equal(amb.V.jornada.resumo().feitas, 0);
+  assert.equal(amb.V.jornada.resumo().xp, 0);
 });
