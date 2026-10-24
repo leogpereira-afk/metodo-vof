@@ -18,6 +18,7 @@ import {
   validarRegistro, validarConfig, revisaoEsperada, caminhoArquivo,
   falhaDeGravacao, falhaDeArquivo, respostaDeErro,
 } from "./regras.mjs";
+import { validarJornada, resumirJornada } from "./jornada.mjs";
 
 const sb = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", { auth: { persistSession: false } });
 const TOKEN = Deno.env.get("VOF_TOKEN") ?? "";
@@ -119,6 +120,27 @@ Deno.serve(async (req) => {
     if (precisaConfirmarAdmin(quem)) await confirmarAdmin(cracha);
 
     switch (action) {
+      case "jornadaGet": {
+        if (Object.keys(body).some((k) => k !== "action")) throw new Falha("A jornada é consultada somente pela sua conta.");
+        const linhas = conferir(await sb.from("vof_jornada_pessoal").select("missao, registro, revision, atualizado_em").eq("usuario", cracha.sub).order("missao"), "ler jornada pessoal");
+        return resp(resumirJornada(cracha.sub, linhas));
+      }
+
+      case "jornadaSalvar": {
+        const j = validarJornada(body);
+        const result = await sb.rpc("vof_jornada_salvar", {
+          p_usuario: cracha.sub, p_missao: j.missao, p_registro: j.registro,
+          p_expected: j.expectedRevision, p_mutation: j.mutationId,
+        });
+        if (result.error) {
+          if (result.error.code === "40001") throw new Falha("Esta missão mudou em outro aparelho. Confira as duas respostas antes de salvar.", 409);
+          if (["22023", "22007", "22008"].includes(result.error.code)) throw new Falha("Resposta ou data da jornada inválida.");
+          console.error("vof-sync: salvar jornada:", result.error.message);
+          throw new Falha("Não foi possível sincronizar sua jornada. Tente novamente.", 500);
+        }
+        return resp(result.data);
+      }
+
       case "ping":
         return resp({ ok: true, agora: new Date().toISOString(), papel: maquina ? "maquina" : cracha.papel });
 

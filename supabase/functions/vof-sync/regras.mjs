@@ -149,6 +149,8 @@ export function facilitadorPode(acao, colecao = null) {
     case "getCfg":
     case "urlArquivo":
     case "saude":
+    case "jornadaGet":
+    case "jornadaSalvar":
       return true;
     case "list":
       // Sem coleção é a exportação inteira (backup): só admin ou máquina.
@@ -162,6 +164,11 @@ export function facilitadorPode(acao, colecao = null) {
 }
 
 export function autorizar({ acao, colecao = null, papel = null, maquina = false }) {
+  // Progresso pessoal nunca é acessível ao token de backup ou à exportação.
+  if (acao === "jornadaGet" || acao === "jornadaSalvar") {
+    if (maquina || !PAPEIS.includes(papel)) negar();
+    return;
+  }
   if (maquina || papel === "admin") return;
   if (papel !== "facilitador" || !facilitadorPode(acao, colecao)) negar();
 }

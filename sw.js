@@ -9,9 +9,10 @@
 //
 // A API NUNCA passa por aqui (supabase.co vai direto) e só o GET do próprio
 // site é tratado: fontes e qualquer outro endereço seguem o caminho normal.
-const CACHE = 'vof-shell-v4';
+const CACHE = 'vof-shell-v5';
 const SHELL = ['./', './index.html', './styles.css', './metodo.css', './config.js', './auth.js',
-  './store.js', './metodo.js', './app.js', './manifest.webmanifest', './favicon.svg', './icone-192.png', './icone-512.png',
+  './store.js', './jornada-conteudo.js', './jornada-sync.js', './metodo.js', './app.js', './manifest.webmanifest', './favicon.svg', './icone-192.png', './icone-512.png',
+  './assets/vof/conquista-primeiro.webp', './assets/vof/conquista-ritmo.webp', './assets/vof/conquista-base.webp', './assets/vof/conquista-trilha.webp',
   // As duas marcas da capa e da sala: sem elas, fora do ar a capa perde a logo.
   // As páginas do caderno (p0xx.jpg) carregam sob demanda e entram no cache ao abrir.
   './assets/vof/logo-vof.png', './assets/vof/logo-leonardo-goncalves.png',

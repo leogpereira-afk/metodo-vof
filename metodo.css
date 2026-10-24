@@ -213,3 +213,38 @@ html.vof-travado{overflow:hidden}
 @media(max-width:760px){.vof-journey{padding:18px 16px}.vof-journey-head{display:flex;gap:12px;align-items:flex-start}.vof-journey-head>div:first-child{flex:1;min-width:0}.vof-journey-head h2{font-size:22px}.vof-journey-score{display:grid;min-width:80px;padding:10px;margin:0;gap:2px}.vof-journey-score b{font-size:22px}.vof-journey-score span{font-size:10px}.vof-achievements{grid-template-columns:repeat(2,minmax(0,1fr))}.vof-journey-map summary>span{display:block;margin:2px 0 6px 16px}.vof-journey-map ol{grid-template-columns:1fr}.vof-cover{grid-template-columns:1fr}.vof-cover-main{padding:22px}.vof-human-figure{min-height:0;height:210px}.vof-human-figure img{object-position:center 48%}.vof-reading-guide{padding:18px}.vof-guided{padding:18px 14px}.vof-guided-steps{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.vof-guided-step{display:flex;min-height:80px}.vof-guided-step:last-child{grid-column:1/-1}.vof-guided-step-copy b{font-size:12px}.vof-guided-content{padding-top:18px}.vof-celebration{flex-wrap:wrap;gap:12px}.vof-celebration .vof-btn{width:100%}.vof-challenge{gap:16px}.vof-challenge-head{flex-wrap:wrap}.vof-challenge-head h3{font-size:20px}.vof-mission-steps{gap:6px}.vof-mission-steps li{font-size:11px;padding:7px 9px}}
 @media(prefers-reduced-motion:reduce){.vof-layout *,.modal-vof *{animation:none!important}}
 @media(max-width:760px){.vof-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible}.vof-tabs button{white-space:normal;min-height:44px;text-align:center}.vof-tabs button[aria-selected=true]{background:var(--vof-accent-soft);border-radius:8px 8px 0 0}}
+
+/* Missões contextualizadas, prática real e salvamento por conta. */
+.vof-case{border-left:3px solid var(--vof-gold,#c39851);padding:12px 14px;background:var(--vof-bg,#f3f6f4);border-radius:0 10px 10px 0;margin-bottom:14px}
+.vof-case small{font-size:11px;font-weight:700;letter-spacing:.03em;color:var(--vof-suave,#52666a)}
+.vof-case p{font-size:14px;line-height:1.65;margin-top:6px}
+.vof-learning-feedback{padding:12px 14px;margin-top:12px;border:1px solid #cba675;border-radius:12px;background:#fff9ed;color:#6f4b1c}
+.vof-learning-feedback.correta{background:#eaf6ef;border-color:#7aab90;color:#24553b}
+.vof-learning-feedback[hidden],.vof-practice[hidden],.vof-practice-summary[hidden]{display:none}
+.vof-learning-feedback b{font-size:13px}.vof-learning-feedback p{font-size:13px;line-height:1.65;margin-top:5px}
+.vof-practice{grid-column:1/-1;border:1px solid var(--vof-linha,#cfdbd8);border-radius:14px;padding:14px 16px;background:var(--vof-card,#fff)}
+.vof-practice summary{cursor:pointer;font-weight:700;font-size:15px;min-height:30px;line-height:30px}
+.vof-practice summary span{font-size:12px;font-weight:400;color:var(--vof-suave,#52666a);margin-left:8px}
+.vof-practice>p{font-size:13px;line-height:1.6;margin:12px 0}
+.vof-practice-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
+.vof-practice label{display:grid;gap:6px;font-size:12px;font-weight:650;min-width:0}
+.vof-practice input,.vof-practice select,.vof-practice textarea{width:100%;min-width:0;max-width:100%;box-sizing:border-box;border:1px solid var(--vof-linha,#cfdbd8);border-radius:9px;background:var(--vof-card,#fff);color:var(--vof-texto,#193a42);font:inherit;font-size:14px;padding:10px;min-height:44px}
+.vof-practice textarea{resize:vertical;line-height:1.6}.vof-practice input:focus-visible,.vof-practice select:focus-visible,.vof-practice textarea:focus-visible{outline:3px solid #3a8e83;outline-offset:2px}
+.vof-practice-actions{display:flex;gap:12px;align-items:center;margin:12px 0;flex-wrap:wrap}
+.vof-practice-actions span,.vof-practice>small{font-size:12px;line-height:1.5;color:var(--vof-suave,#52666a)}
+.vof-practice-summary{margin:14px 0;border:1px solid var(--vof-linha,#cfdbd8);border-radius:12px;padding:12px 14px}
+.vof-practice-summary h3{font-size:14px;margin-bottom:8px}.vof-practice-summary ul{list-style:none;display:grid;gap:5px;padding:0}
+.vof-practice-summary button{display:flex;justify-content:space-between;align-items:center;text-align:left;gap:10px;min-height:44px;width:100%;border:0;border-bottom:1px solid var(--vof-linha,#cfdbd8);background:transparent;color:var(--vof-texto,#193a42);padding:8px 0;cursor:pointer}
+.vof-practice-summary button b{font-size:12px}.vof-practice-summary button small{font-size:11px;color:var(--vof-suave,#52666a)}
+.vof-achievements img{object-fit:contain;flex:none;filter:grayscale(.7);opacity:.65}.vof-achievements .conquistada img{filter:none;opacity:1}
+.vof-conquista-simbolo{line-height:1;flex:none}.vof-conquista-simbolo img{object-fit:contain;display:block}
+.vof-sync-panel{grid-column:1/-1;margin-top:14px;padding:12px 14px;border:1px solid var(--vof-linha,#cfdbd8);border-radius:12px;background:var(--vof-card,#fff);color:var(--vof-texto,#193a42);font:inherit;font-size:12px;line-height:1.5;min-width:0}
+.vof-sync-line{display:flex;align-items:center;justify-content:space-between;gap:12px}.vof-sync-line>span:before{content:'◷';margin-right:7px;font-size:15px}.vof-sync-panel[data-estado=ok] .vof-sync-line>span:before{content:'✓';color:#28784e}
+.vof-sync-panel .vof-btn{font:inherit;font-weight:650;border:1px solid #436b6d;border-radius:9px;min-height:40px;padding:8px 12px;background:#225d59;color:white;cursor:pointer;flex-shrink:0}
+.vof-sync-panel .vof-btn.ghost{background:transparent;color:inherit;border-color:#a4b8b4}.vof-sync-panel .vof-btn:disabled{opacity:.65;cursor:wait}
+.vof-sync-panel .vof-btn:focus-visible{outline:3px solid #469c91;outline-offset:3px}.vof-legacy{border-top:1px solid #d5dfdc;margin-top:10px;padding-top:10px}.vof-legacy p{font-size:12px;margin:0 0 8px}
+.vof-sync-conflict{margin-top:10px;padding:12px;border:1px solid #c69b52;background:#fffaf0;color:#36493d;border-radius:10px}.vof-sync-conflict summary{font-weight:700;cursor:pointer;min-height:36px}.vof-sync-conflict p{font-size:12px;line-height:1.6}
+.vof-sync-comparison{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}.vof-sync-comparison>div{min-width:0;padding:10px;border:1px solid #dacbb2;border-radius:8px;overflow-wrap:anywhere}.vof-sync-comparison small{display:block;margin-top:4px}.vof-sync-comparison p{white-space:pre-wrap}
+.vof-sync-choices{display:flex;flex-wrap:wrap;gap:8px}.vof-sync-choices button{flex:1}.vof-sync-panel [data-sync-aviso]:not(:empty){display:block;margin-top:8px}
+@media(max-width:600px){.vof-practice summary span{display:block;margin-left:16px;line-height:1.4}.vof-practice-fields{gap:8px}.vof-practice input,.vof-practice select,.vof-practice textarea{font-size:16px}.vof-practice-actions .vof-btn{width:100%}.vof-sync-panel{padding:10px}.vof-sync-panel .vof-btn{min-height:44px}.vof-sync-comparison{grid-template-columns:1fr}.vof-practice-summary button{align-items:flex-start;flex-direction:column;gap:3px}.vof-achievements li{padding:8px;gap:5px}.vof-achievements img{width:38px;height:38px}.vof-achievements b{font-size:11px}}
+.vof-editor-conflict{grid-column:1/-1}.vof-editor-conflict[hidden]{display:none}

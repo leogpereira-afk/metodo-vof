@@ -59,8 +59,9 @@ window.VOFMetodo = (function () {
 // arquivados = { planos: [registro, ...] }: nascem arquivados (revisão 2), e o
 // falso imita a porta: a lista manda o arquivado sem conteúdo ao facilitador,
 // upsert em arquivado volta 409 e restore é só do admin.
-export function servidorFalso({ dados = {}, arquivados = {}, conteudo = null, papel = 'facilitador', falhas = {}, eu = null } = {}) {
+export function servidorFalso({ dados = {}, arquivados = {}, conteudo = null, papel = 'facilitador', falhas = {}, eu = null, jornada = false } = {}) {
   const banco = new Map();
+  const jornadas = new Map();
   let relogio = 0;
   const agora = () => new Date(Date.UTC(2026, 8, 25, 12, 0, 0, relogio++)).toISOString();
   const guardar = (colecao, reg) => banco.set(colecao + ':' + reg.id, { colecao, id: reg.id, registro: JSON.parse(JSON.stringify(reg)), revision: 1, apagado: false, atualizado_em: agora() });
@@ -87,6 +88,20 @@ export function servidorFalso({ dados = {}, arquivados = {}, conteudo = null, pa
     const f = falhas[corpo.action];
     if (f === 'rede') throw new TypeError('Failed to fetch');
     if (f) return resposta(f.status, f.corpo || { erro: 'falha programada' });
+    if (jornada && ['jornadaGet', 'jornadaSalvar'].includes(corpo.action)) {
+      let usuario = '';
+      try { usuario = JSON.parse(atob(auth.replace(/^Bearer /, '').split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub; } catch {}
+      if (!usuario) return resposta(401, { erro: 'Entre no sistema.' });
+      if (!jornadas.has(usuario)) jornadas.set(usuario, {});
+      const respostas = jornadas.get(usuario);
+      if (corpo.action === 'jornadaGet') return resposta(200, { ok: true, usuario, respostas, xp: Object.values(respostas).filter(r => r.registro.concluida).length * 30 });
+      const anterior = respostas[corpo.missao];
+      if (corpo.expectedRevision !== (anterior?.revision || 0)) return resposta(409, { erro: 'Conflito na missão.' });
+      const registro = JSON.parse(JSON.stringify(corpo.registro));
+      if (anterior?.registro.concluida) { registro.concluida = true; registro.data = anterior.registro.data; }
+      respostas[corpo.missao] = { registro, revision: (anterior?.revision || 0) + 1, atualizado_em: agora() };
+      return resposta(200, { ok: true, usuario, missao: corpo.missao, ...respostas[corpo.missao] });
+    }
     switch (corpo.action) {
       case 'rev': return resposta(200, { rev: { rev: 1, porColecao: porColecao() } });
       case 'list': {
@@ -128,13 +143,13 @@ export function servidorFalso({ dados = {}, arquivados = {}, conteudo = null, pa
       default: return resposta(400, { erro: 'Ação desconhecida.' });
     }
   }
-  return { fetch: fetchFalso, chamadas, banco, doSync: acao => chamadas.filter(c => c.porta === 'vof-sync' && (!acao || c.action === acao)) };
+  return { fetch: fetchFalso, chamadas, banco, jornadas, doSync: acao => chamadas.filter(c => c.porta === 'vof-sync' && (!acao || c.action === acao)) };
 }
 
 export const assentar = async (voltas = 30) => { for (let i = 0; i < voltas; i++) await new Promise(r => setImmediate(r)); };
 
 // Monta a página. metodo: 'falso' (padrão), 'real' (metodo.js do projeto) ou 'nenhum'.
-export function montar({ cracha = null, usuarioSalvo = null, hash = '#/', servidor = servidorFalso(), metodo = 'falso', memoria = new Map() } = {}) {
+export function montar({ cracha = null, usuarioSalvo = null, hash = '#/', servidor = servidorFalso(), metodo = 'falso', memoria = new Map(), jornada = false, content = false } = {}) {
   const { document, window: jan, HTMLElement } = parseHTML(ler('index.html'));
   let foco = null;
   HTMLElement.prototype.focus = function () { foco = this; };
@@ -182,7 +197,11 @@ export function montar({ cracha = null, usuarioSalvo = null, hash = '#/', servid
   sandbox.self = sandbox;
   vm.createContext(sandbox);
   const scripts = [...document.querySelectorAll('script[src]')].map(s => s.getAttribute('src').replace(/^\.\//, ''));
+  if (jornada && !scripts.includes('jornada-sync.js')) scripts.splice(scripts.indexOf('store.js') + 1, 0, 'jornada-sync.js');
+  if (content && !scripts.includes('jornada-conteudo.js')) scripts.splice(scripts.indexOf('metodo.js'), 0, 'jornada-conteudo.js');
   for (const nome of scripts) {
+    if (nome === 'jornada-sync.js' && !jornada) continue;
+    if (nome === 'jornada-conteudo.js' && !content) continue;
     if (nome === 'metodo.js') {
       if (metodo === 'nenhum') continue;
       if (metodo === 'falso' || !existe('metodo.js')) { vm.runInContext(METODO_FALSO, sandbox, { filename: 'metodo-falso.js' }); continue; }

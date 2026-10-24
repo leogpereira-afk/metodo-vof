@@ -42,7 +42,7 @@ jobs:
       - name: Separar somente os arquivos públicos do site
         run: |
           mkdir -p dist
-          cp index.html config.js auth.js store.js metodo.js app.js styles.css metodo.css sw.js manifest.webmanifest dist/
+          cp index.html config.js auth.js store.js jornada-conteudo.js jornada-sync.js metodo.js app.js styles.css metodo.css sw.js manifest.webmanifest dist/
           cp favicon.svg icone-192.png icone-512.png dist/
           cp -R assets dist/
           touch dist/.nojekyll

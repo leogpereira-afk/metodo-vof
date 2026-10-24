@@ -904,10 +904,10 @@ test('nenhum travessão ou meia-risca nos arquivos da casca', () => {
   }
 });
 
-test('index.html carrega config, auth, store, metodo e app nessa ordem, com caminhos relativos', () => {
+test('index.html carrega config, auth, store, jornada, metodo e app nessa ordem, com caminhos relativos', () => {
   const { document } = parseHTML(ler('index.html'));
   const scripts = [...document.querySelectorAll('script')].map(s => s.getAttribute('src'));
-  assert.deepEqual(scripts, ['./config.js', './auth.js', './store.js', './metodo.js', './app.js']);
+  assert.deepEqual(scripts, ['./config.js', './auth.js', './store.js', './jornada-conteudo.js', './jornada-sync.js', './metodo.js', './app.js']);
   const refs = [...document.querySelectorAll('[src], [href]')].map(e => e.getAttribute('src') || e.getAttribute('href'));
   for (const r of refs) {
     if (/^https:\/\/fonts\.(googleapis|gstatic)\.com/.test(r)) continue;
@@ -916,13 +916,13 @@ test('index.html carrega config, auth, store, metodo e app nessa ordem, com cami
   assert.ok(refs.includes('./metodo.css') && refs.includes('./styles.css'));
 });
 
-test('manifesto e service worker: caminhos relativos, cache vof-shell-v4', () => {
+test('manifesto e service worker: caminhos relativos, cache vof-shell-v5', () => {
   const man = JSON.parse(ler('manifest.webmanifest'));
   assert.equal(man.start_url, './');
   assert.equal(man.scope, './');
   for (const i of man.icons) assert.match(i.src, /^\.\//);
   const sw = ler('sw.js');
-  assert.match(sw, /const CACHE = 'vof-shell-v4'/);
+  assert.match(sw, /const CACHE = 'vof-shell-v5'/);
   const shell = /const SHELL\s*=\s*\[([\s\S]*?)\]/.exec(sw)[1];
   for (const m of shell.matchAll(/'([^']+)'/g)) assert.match(m[1], /^\.\//);
 });

@@ -94,3 +94,38 @@ test('concluir pela Home devolve foco ao CTA atualizado e atualiza o Método reu
   await p.irPara('#/metodo');
   assert.match(p.document.querySelector('[data-vof-journey-status]').textContent, /^1 de 18/);
 });
+
+test('Home mantém comparação e foco durante sincronização e atualiza o resumo ao lado', async () => {
+  const p = montar({ cracha: crachaFalso(), servidor: servidorFalso({ jornada: true }), metodo: 'real', jornada: true, content: true });
+  await assentar(); await p.run('VOFJornada.conectar()');
+  p.run(`window.__progressoHome = { xp: 0, respostas: {} };
+    window.__statusHome = 'Compare as versões.';
+    window.VOFJornada = {
+      ...VOFJornada,
+      estado: () => window.__progressoHome,
+      status: () => ({estado: 'conflito', mensagem: window.__statusHome, legadoDisponivel: false}),
+      conflitosDetalhes: () => [{id: 'arquitetura', servidorPendente: true,
+        local: {texto: 'Meu rascunho fictício.'}, servidor: {texto: 'Outro rascunho fictício.'}}],
+      resolverConflito: async (id, versao) => { window.__escolhaHome = {id, versao}; }
+    };
+    window.dispatchEvent(new CustomEvent('vof-jornada-atualizada'));
+  `);
+  const painel = p.document.querySelector('#inicio-jornada [data-vof-sync-panel]');
+  const comparacao = painel.querySelector('.vof-sync-conflict');
+  comparacao.setAttribute('open', '');
+  const botao = comparacao.querySelector('[data-versao="local"]'); botao.focus();
+  p.run(`window.__progressoHome = {xp: 30, respostas: {operacao: {concluida: true, texto: 'Registro fictício da operação.'}}};
+    window.__statusHome = 'Dados atualizados. Compare as versões.';
+    window.dispatchEvent(new CustomEvent('vof-jornada-atualizada', {detail: {sincronizacao: true}}));
+    window.dispatchEvent(new CustomEvent('vof-jornada-sync'));
+  `);
+  assert.equal(p.document.querySelector('#inicio-jornada [data-vof-sync-panel]') === painel, true, 'preserva o painel montado');
+  assert.equal(painel.querySelector('.vof-sync-conflict') === comparacao, true, 'preserva a comparação sem mudança');
+  assert.equal(comparacao.hasAttribute('open'), true);
+  assert.equal(p.document.activeElement === botao, true);
+  assert.equal(botao.isConnected, true);
+  assert.match(p.document.querySelector('#inicio-jornada').textContent, /30 XP/);
+  assert.match(painel.querySelector('[data-sync-status]').textContent, /Dados atualizados/);
+  botao.click(); await assentar();
+  assert.equal(p.run('JSON.stringify(window.__escolhaHome)'), JSON.stringify({id: 'arquitetura', versao: 'local'}));
+});

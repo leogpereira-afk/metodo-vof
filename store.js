@@ -92,8 +92,10 @@ const STORE = (() => {
   }
   function setUser(u) {
     epoch++; mem = null; conteudo = null; carregandoConteudo = null; atualizando = null;
-    if (!u) { apagarLS(K_USER); return true; }
-    return gravarLS(K_USER, JSON.stringify(camposUser(u)));
+    if (!u) { apagarLS(K_USER); avisar('usuario', null); return true; }
+    const salva = gravarLS(K_USER, JSON.stringify(camposUser(u)));
+    if (salva) avisar('usuario', getUser());
+    return salva;
   }
   // Muda só as marcas da sessão da MESMA pessoa (a senha deixou de ser
   // provisória). Não é troca de conta: não zera a memória nem os dados.
@@ -139,6 +141,12 @@ const STORE = (() => {
   async function apiFn(action, corpo, opcoes) {
     const sessaoDaChamada = epoch;
     const cracha = typeof AUTH !== 'undefined' ? AUTH.cracha() : '';
+    // Jornada vincula a rodada ao crachá que iniciou o GET. Outra aba pode
+    // trocar só o token antes de atualizar o usuário; nesse intervalo a fila
+    // antiga não pode ser enviada com a credencial da conta seguinte.
+    if (opcoes && opcoes.crachaEsperado !== undefined && opcoes.crachaEsperado !== cracha) {
+      throw erro('sessao', 'A conta mudou durante a sincronização. Confira o acesso antes de continuar.', 401);
+    }
     if (!cracha) {
       const e = erro('sessao', 'Sua sessão terminou. Entre de novo.', 401);
       avisar('sessao', e.message);
@@ -425,6 +433,13 @@ const STORE = (() => {
   function contarRascunhos() { return chavesDaConta().filter(k => k.indexOf('vof_rascunho_v1_') === 0).length; }
   function limparConta() { chavesDaConta().forEach(apagarLS); mem = null; }
 
+  // Jornada pessoal: a identidade vem exclusivamente do crachá no servidor.
+  // Não aceita usuario, dono ou coleção vindos de telas.
+  function jornadaGet(crachaEsperado) { return apiFn('jornadaGet', undefined, { crachaEsperado }); }
+  function jornadaSalvar({ missao, registro, expectedRevision, mutationId }, crachaEsperado) {
+    return apiFn('jornadaSalvar', { missao, registro, expectedRevision, mutationId }, { crachaEsperado });
+  }
+
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     window.addEventListener('online', () => { if (getUser()) atualizar(); });
   }
@@ -432,7 +447,7 @@ const STORE = (() => {
   return {
     COLECOES, apiFn, atualizar, col, um, arquivado, gravar, apagar, restaurar, carregarConteudo,
     conteudoEmMemoria: () => conteudo,
-    lerSala, gravarSala, urlArquivo, rascunho, contarRascunhos, limparConta, getUser, setUser, ajustarUser,
+    lerSala, gravarSala, urlArquivo, rascunho, contarRascunhos, limparConta, getUser, setUser, ajustarUser, jornadaGet, jornadaSalvar,
     atualizadoEm: () => estado().em,
     on: (ev, fn) => { (ouvintes[ev] = ouvintes[ev] || []).push(fn); },
   };

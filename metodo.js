@@ -301,13 +301,14 @@
     return r;
   }
 
-  /* ---------------- jornada (XP guardado neste navegador) ---------------- */
+  /* ---------------- jornada pessoal e reserva local ---------------- */
   const CHAVE_JORNADA = 'vof_jornada_v1';
   // Na Central a chave era outra. Os sistemas no github.io dividem a mesma origem,
   // então o progresso de lá está neste mesmo localStorage: copia UMA vez, só se a
   // chave nova ainda não existir, e nunca apaga a de lá.
   const CHAVE_JORNADA_CENTRAL = 'cl_vof_jornada_v1';
   const XP_MISSAO = 30;
+  const jornadaPessoal = () => raiz.VOFJornada || null;
   /* A jornada é JSON do localStorage, e os outros sistemas da mesma origem
      também escrevem ali (a cópia da Central é um deles). Nada dela vira HTML,
      mas tipo inesperado derrubava a tela: xp {"toString":1} fazia o Number()
@@ -327,6 +328,11 @@
       // "__proto__" como chave trocaria o protótipo de respostas em vez de criar uma missão.
       if (id === '__proto__' || !r || typeof r !== 'object' || Array.isArray(r)) return;
       respostas[id] = { opcao: soTexto(r.opcao), texto: soTexto(r.texto), concluida: Boolean(r.concluida), data: soTexto(r.data) };
+      if (Number.isSafeInteger(r.desafioVersao)) respostas[id].desafioVersao = r.desafioVersao;
+      if (r.pratica && typeof r.pratica === 'object' && !Array.isArray(r.pratica)) respostas[id].pratica = {
+        prazo: soTexto(r.pratica.prazo), situacao: ['planejada', 'em_pratica', 'revisada'].includes(r.pratica.situacao) ? r.pratica.situacao : 'planejada',
+        resultado: soTexto(r.pratica.resultado).slice(0, 2000), revisaoEm: soTexto(r.pratica.revisaoEm)
+      };
     });
     return { xp: Number.isFinite(xp) && xp > 0 ? xp : 0, respostas };
   }
@@ -336,20 +342,26 @@
     if (antiga && (antiga.xp > 0 || Object.keys(antiga.respostas).length)) armazem.gravar(CHAVE_JORNADA, JSON.stringify(antiga));
   }
   function jornadaEstado() {
+    if (jornadaPessoal()) return jornadaPessoal().estado();
     trazerJornadaDaCentral();
     return normalizarJornada(lerJson(CHAVE_JORNADA)) || { xp: 0, respostas: {} };
   }
-  function jornadaPersistir(estado) { return armazem.gravar(CHAVE_JORNADA, JSON.stringify(estado)); }
-  function jornadaRascunho(id, opcao, texto) {
+  function jornadaPersistir(estado, id) { return jornadaPessoal() ? jornadaPessoal().persistir(estado, { id }) : armazem.gravar(CHAVE_JORNADA, JSON.stringify(estado)); }
+  function jornadaRascunho(id, opcao, texto, extra = {}) {
     const estado = jornadaEstado(), anterior = estado.respostas[id] || {};
-    estado.respostas[id] = Object.assign({}, anterior, { opcao: opcao || '', texto: String(texto || '').slice(0, 2000) });
-    if (jornadaPersistir(estado)) emitir('vof-jornada-atualizada', { id, rascunho: true });
+    // Uma missão concluída exige evidência válida também no servidor. Um trecho
+    // curto durante a edição permanece no campo, sem substituir o último salvo.
+    if (anterior.concluida && String(texto || '').trim().length < 12) return false;
+    estado.respostas[id] = Object.assign({}, anterior, extra, { opcao: opcao || '', texto: String(texto || '').slice(0, 2000) });
+    const salva = jornadaPersistir(estado, id);
+    if (salva) emitir('vof-jornada-atualizada', { id, rascunho: true });
+    return salva;
   }
-  function jornadaRegistrar(id, opcao, texto) {
+  function jornadaRegistrar(id, opcao, texto, extra = {}) {
     const estado = jornadaEstado(), anterior = estado.respostas[id] || {}, novo = !anterior.concluida;
-    estado.respostas[id] = Object.assign({}, anterior, { opcao, texto: String(texto || '').trim().slice(0, 2000), concluida: true, data: dataLocal() });
+    estado.respostas[id] = Object.assign({}, anterior, extra, { opcao, texto: String(texto || '').trim().slice(0, 2000), concluida: true, data: anterior.concluida ? anterior.data : dataLocal() });
     if (novo) estado.xp += XP_MISSAO;
-    const salva = jornadaPersistir(estado);
+    const salva = jornadaPersistir(estado, id);
     return { salva, ganho: salva && novo ? XP_MISSAO : 0, xp: salva ? estado.xp : jornadaEstado().xp };
   }
   // "Limpar" grava o estado vazio em vez de apagar a chave: apagar faria a cópia
@@ -387,6 +399,8 @@
     return ['pessoas', 'pessoas2', 'gestores', 'gestores2', 'times', 'dono', 'dinamicas'].includes(mod.id) ? 'pessoas' : 'metodo';
   }
   function desafio(mod) {
+    const caso = raiz.VOFExercicios?.porId?.[mod.id];
+    if (caso) return caso;
     return {
       pergunta: mod.perguntas[0] || 'Qual é o próximo passo que precisa acontecer?',
       opcoes: [
@@ -397,14 +411,81 @@
       escrita: 'Escreva a primeira evidência que provará esta entrega.'
     };
   }
+  function contaDaJornada() {
+    if (!jornadaPessoal()) return null;
+    const loja = typeof STORE !== 'undefined' ? STORE : raiz.STORE;
+    return loja?.getUser()?.usuario || '';
+  }
+  const copiaEditor = valor => JSON.parse(JSON.stringify(valor));
+  const igualEditor = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  function protegerEditorJornada(c, configuracao) {
+    const conta = contaDaJornada();
+    let base = copiaEditor(configuracao.ler()), escrevendo = false, bloqueado = false, encerrado = false;
+    const aviso = el('<aside class="vof-editor-conflict vof-sync-conflict" hidden><p role="status" aria-live="polite"><b>Esta informação mudou em outra janela ou aparelho.</b> Sua edição foi mantida abaixo. Compare antes de salvar.</p><div class="vof-sync-comparison"><div><b>Sua edição neste campo</b><p data-editor-local></p></div><div><b>Versão atual da jornada</b><p data-editor-atual></p></div></div><div class="vof-sync-choices"><button class="vof-btn ghost" type="button" data-editor-versao="atual">Carregar versão atual</button><button class="vof-btn" type="button" data-editor-versao="local">Manter minha edição</button></div></aside>');
+    configuracao.antes.before(aviso);
+    const identidadeValida = () => {
+      if (!encerrado && contaDaJornada() === conta) return true;
+      encerrado = true; bloqueado = true;
+      c.querySelectorAll('button, input, select, textarea').forEach(n => { n.disabled = true; });
+      // Um formulário aberto nunca pode passar a escrever como a conta nova.
+      if (ativa) ativa.fechar();
+      return false;
+    };
+    const conferir = () => {
+      if (!identidadeValida()) return false;
+      const atual = configuracao.ler();
+      if (escrevendo) { base = copiaEditor(atual); return true; }
+      if (!igualEditor(base, atual)) bloqueado = true;
+      if (bloqueado) {
+        aviso.hidden = false;
+        aviso.querySelector('[data-editor-local]').textContent = configuracao.descrever(configuracao.local());
+        aviso.querySelector('[data-editor-atual]').textContent = configuracao.descrever(atual);
+      }
+      return !bloqueado;
+    };
+    aviso.querySelectorAll('[data-editor-versao]').forEach(b => { b.onclick = () => {
+      if (!identidadeValida()) return;
+      base = copiaEditor(configuracao.ler());
+      if (b.dataset.editorVersao === 'atual') configuracao.aplicar(base);
+      bloqueado = false; aviso.hidden = true;
+      configuracao.atualizar();
+      configuracao.recado(b.dataset.editorVersao === 'atual' ? 'Versão atual carregada. Confira antes de continuar.' : 'Sua edição foi mantida. Confira e use o botão de salvar para registrá-la.');
+      focar(configuracao.foco);
+    }; });
+    c.dataset.vofEditor = 'true';
+    c.__atualizarEditorJornada = () => { conferir(); configuracao.atualizar(); };
+    return {
+      bloqueado: () => bloqueado || encerrado,
+      conferir,
+      gravar(fn) {
+        if (!conferir()) { configuracao.atualizar(); return false; }
+        escrevendo = true;
+        try {
+          const salvo = fn();
+          if (salvo !== false) base = copiaEditor(configuracao.ler());
+          return salvo;
+        } finally { escrevendo = false; }
+      }
+    };
+  }
+  function atualizarEditoresJornada() {
+    doc()?.querySelectorAll('[data-vof-editor]').forEach(c => c.__atualizarEditorJornada?.());
+  }
+  ouvir('vof-jornada-atualizada', atualizarEditoresJornada);
+  if (typeof raiz.addEventListener === 'function') raiz.addEventListener('vof-jornada-atualizada', atualizarEditoresJornada);
   function desafioUI(mod) {
     const d = desafio(mod), anterior = jornadaEstado().respostas[mod.id] || {}, id = 'vof-desafio-' + uid();
-    let escolha = anterior.opcao || '';
+    let escolha = anterior.opcao || '', editor = null;
+    const educativo = Boolean(d.cenario), extra = educativo ? { desafioVersao: raiz.VOFExercicios.versao } : {};
     const c = el(`<section class="vof-challenge" aria-labelledby="${id}"><div class="vof-challenge-head"><div><span class="vof-challenge-tag">Missão de aplicação</span><h3 id="${id}">Responder, escrever, provar</h3></div><b class="vof-challenge-xp" data-vof-xp>+30 XP</b></div><div class="vof-challenge-answer"><span class="vof-challenge-label">Responder</span><p data-vof-question></p><div class="vof-challenge-options" data-vof-opcoes role="group" aria-label="Escolha o próximo passo"></div></div><label class="vof-challenge-writing"><span class="vof-challenge-label">Escrever</span><small data-vof-writing-label></small><textarea rows="2" maxlength="2000" placeholder="Ex.: em até 7 dias, o responsável registrará..." aria-label="Evidência escrita da missão"></textarea></label><div class="vof-challenge-actions"><button type="button" class="vof-btn" data-vof-salvar disabled>Concluir missão · +30 XP</button><span data-vof-status role="status" aria-live="polite"></span></div></section>`);
     c.querySelector('[data-vof-question]').textContent = d.pergunta;
     c.querySelector('[data-vof-writing-label]').textContent = d.escrita;
+    if (educativo) {
+      c.querySelector('.vof-challenge-answer').prepend(el(`<div class="vof-case"><small>${esc(d.label)} · situação ilustrativa</small><p>${esc(d.cenario)}</p></div>`));
+      c.querySelector('[data-vof-opcoes]').after(el('<div class="vof-learning-feedback" role="status" aria-live="polite" hidden></div>'));
+    }
     const area = c.querySelector('textarea'), opcoes = c.querySelector('[data-vof-opcoes]'), salvarBtn = c.querySelector('[data-vof-salvar]'), status = c.querySelector('[data-vof-status]');
-    const incentivo = el(`<div class="vof-mission-guide">${arteArea(areaModulo(mod))}<div><b>Um passo possível, no seu ritmo.</b><span>Escolha um caminho e anote o que pretende aplicar. Seu registro pode evoluir com a prática.</span></div></div>`);
+    const incentivo = el(`<div class="vof-mission-guide">${arteArea(areaModulo(mod))}<div><b>Um passo possível, no seu ritmo.</b><span>${esc(d.incentivo || 'Escolha um caminho e anote o que pretende aplicar. Seu registro pode evoluir com a prática.')}</span></div></div>`);
     c.querySelector('.vof-challenge-head').after(incentivo);
     const passos = el('<ol class="vof-mission-steps" aria-label="Passos desta missão"><li data-passo="escolher">1 · Escolher</li><li data-passo="escrever">2 · Escrever</li><li data-passo="registrar">3 · Registrar</li></ol>');
     incentivo.after(passos);
@@ -412,8 +493,20 @@
     c.appendChild(conquista);
     area.value = anterior.texto || '';
     const atualizar = () => {
-      const pronto = Boolean(escolha) && area.value.trim().length >= 12;
       const concluida = Boolean((jornadaEstado().respostas[mod.id] || {}).concluida);
+      const escolhida = d.opcoes.find(o => o.id === escolha);
+      const coerente = !educativo || Boolean(escolhida?.correta);
+      const pronto = Boolean(escolha) && area.value.trim().length >= 12 && (coerente || concluida) && !editor?.bloqueado();
+      const feedback = c.querySelector('.vof-learning-feedback');
+      if (feedback) {
+        feedback.hidden = !escolhida;
+        feedback.classList.toggle('correta', Boolean(escolhida?.correta));
+        // A região viva muda só quando a escolha muda, não a cada tecla escrita.
+        if (feedback.dataset.escolha !== escolha) {
+          feedback.dataset.escolha = escolha;
+          feedback.innerHTML = escolhida ? `<b>${escolhida.correta ? '✓ Este caminho faz sentido.' : 'Vamos pensar em outra possibilidade.'}</b><p>${esc(escolhida.feedback)}</p>` : '';
+        }
+      }
       passos.querySelector('[data-passo="escolher"]').classList.toggle('feito', Boolean(escolha));
       passos.querySelector('[data-passo="escrever"]').classList.toggle('feito', area.value.trim().length >= 12);
       passos.querySelector('[data-passo="registrar"]').classList.toggle('feito', concluida);
@@ -425,18 +518,27 @@
       });
       salvarBtn.disabled = !pronto;
       salvarBtn.textContent = concluida ? 'Atualizar resposta · 0 XP' : 'Concluir missão · +30 XP';
-      status.textContent = concluida ? 'Missão concluída. Você pode atualizar a resposta quando quiser.' : pronto ? 'Seu próximo passo está escrito. Registre para continuar.' : 'Escolha um caminho e escreva pelo menos 12 caracteres.';
+      status.textContent = editor?.bloqueado() ? 'Compare as versões acima antes de salvar. Sua edição continua neste campo.' : concluida && area.value.trim().length < 12 ? 'Trecho em edição, ainda não salvo. Complete pelo menos 12 caracteres; a última resposta salva foi preservada.' : concluida ? 'Missão concluída. Você pode atualizar a resposta quando quiser.' : educativo && escolha && !coerente ? 'Leia a explicação e experimente outro caminho. Tentar faz parte do aprendizado.' : pronto ? 'Seu próximo passo está escrito. Registre para continuar.' : 'Escolha um caminho e escreva pelo menos 12 caracteres.';
+    };
+    const salvarRascunho = () => {
+      const gravar = () => jornadaRascunho(mod.id, escolha, area.value, extra);
+      if (editor) editor.gravar(gravar); else gravar();
+      atualizar();
     };
     d.opcoes.forEach(o => {
       const b = el(`<button type="button" class="vof-challenge-option" aria-pressed="false"><b>${esc(o.titulo)}</b><small>${esc(o.detalhe)}</small></button>`);
       b.dataset.opcao = o.id;
-      b.onclick = () => { escolha = o.id; jornadaRascunho(mod.id, escolha, area.value); atualizar(); };
+      b.onclick = () => { escolha = o.id; salvarRascunho(); };
       opcoes.appendChild(b);
     });
-    area.oninput = () => { jornadaRascunho(mod.id, escolha, area.value); atualizar(); };
+    area.oninput = salvarRascunho;
     salvarBtn.onclick = () => {
       if (salvarBtn.disabled) return;
-      const r = jornadaRegistrar(mod.id, escolha, area.value);
+      let r;
+      if (editor) {
+        const permitido = editor.gravar(() => { r = jornadaRegistrar(mod.id, escolha, area.value, extra); return r.salva; });
+        if (!permitido && !r) { atualizar(); return; }
+      } else r = jornadaRegistrar(mod.id, escolha, area.value, extra);
       if (!r.salva) {
         status.textContent = 'Não foi possível salvar neste navegador. Copie sua resposta antes de sair e confira o armazenamento do aparelho.';
         conquista.hidden = true;
@@ -448,6 +550,11 @@
       conquista.hidden = false;
       conquista.classList.toggle('nova-conquista', Boolean(r.ganho));
       const resumo = jornadaResumo();
+      if (raiz.VOFExercicios) {
+        const selo = resumo.conquistas.filter(x => x.atingida).at(-1);
+        const arte = raiz.VOFExercicios.conquistas.find(x => x.id === selo?.id)?.arte;
+        if (arte) conquista.querySelector('.vof-conquista-simbolo').replaceChildren(el(`<img src="${esc(arte)}" alt="" width="64" height="64">`));
+      }
       conquista.querySelector('[data-conquista-titulo]').textContent = r.ganho ? (resumo.proximo ? 'Você deu mais um passo.' : 'Você percorreu toda a trilha!') : 'Seu aprendizado continua evoluindo.';
       conquista.querySelector('[data-conquista-texto]').textContent = `${resumo.feitas} de ${resumo.total} missões registradas. Agora leve este combinado à prática e confira o resultado. Os pontos representam seu registro, não uma validação da empresa.`;
       const seguir = conquista.querySelector('[data-missao-seguinte]');
@@ -459,10 +566,116 @@
         } else if (ativa) ativa.fechar();
       };
       emitir('vof-jornada-atualizada', { id: mod.id, xp: r.xp });
+      const pratica = c.querySelector('.vof-practice');
+      if (pratica) pratica.hidden = false;
     };
+    if (jornadaPessoal()) {
+      const extrair = r => ({ opcao: r?.opcao || '', texto: r?.texto || '', concluida: Boolean(r?.concluida), data: r?.data || '', desafioVersao: r?.desafioVersao || 0 });
+      editor = protegerEditorJornada(c, {
+        ler: () => extrair(jornadaEstado().respostas[mod.id]),
+        local: () => ({ ...extrair(jornadaEstado().respostas[mod.id]), opcao: escolha, texto: area.value }),
+        aplicar: r => { escolha = r.opcao; area.value = r.texto; conquista.hidden = true; c.querySelector('.vof-practice')?.toggleAttribute('hidden', !r.concluida); },
+        descrever: r => `${d.opcoes.find(o => o.id === r.opcao)?.titulo || 'Sem escolha'}\n${r.texto || 'Sem resposta escrita'}`,
+        antes: c.querySelector('.vof-challenge-actions'), foco: area, atualizar, recado: texto => { status.textContent = texto; }
+      });
+    }
+    if (educativo) c.appendChild(praticaUI(mod, d));
+    if (jornadaPessoal()) c.appendChild(jornadaSincronizacaoUI());
     atualizar();
     return c;
   }
+  function praticaUI(mod, desafio) {
+    const anterior = jornadaEstado().respostas[mod.id] || {}, pratica = anterior.pratica || {};
+    const c = el('<details class="vof-practice"><summary>Levar à prática <span>Aplicar e conferir depois</span></summary><p data-pratica-convite></p><div class="vof-practice-fields"><label>Quando revisar?<input type="date" data-pratica-prazo></label><label>Situação<select data-pratica-situacao><option value="planejada">Planejada</option><option value="em_pratica">Em prática</option><option value="revisada">Revisada</option></select></label></div><label class="vof-practice-result"><span data-pratica-pergunta></span><textarea rows="3" maxlength="2000" data-pratica-resultado placeholder="O que aconteceu? Qual evidência você observou?"></textarea></label><div class="vof-practice-actions"><button class="vof-btn" type="button" data-pratica-salvar>Salvar aplicação</button><span role="status" aria-live="polite" data-pratica-status></span></div><small>Este é seu relato de aplicação. Não soma XP nem confirma, por si só, um resultado da empresa.</small></details>');
+    c.hidden = !anterior.concluida;
+    c.querySelector('[data-pratica-convite]').textContent = desafio.aplicacao;
+    c.querySelector('[data-pratica-pergunta]').textContent = desafio.revisao;
+    const prazo = c.querySelector('[data-pratica-prazo]'), situacao = c.querySelector('[data-pratica-situacao]'), resultado = c.querySelector('[data-pratica-resultado]'), status = c.querySelector('[data-pratica-status]');
+    prazo.value = pratica.prazo || '';
+    situacao.value = pratica.situacao || 'planejada';
+    resultado.value = pratica.resultado || '';
+    let editor = null;
+    const salvar = c.querySelector('[data-pratica-salvar]');
+    const atualizar = () => { salvar.disabled = Boolean(editor?.bloqueado()); };
+    salvar.onclick = () => {
+      if (editor && !editor.conferir()) { atualizar(); return; }
+      const quando = prazo.value, texto = resultado.value.trim(), fase = situacao.value;
+      if (quando && (!/^\d{4}-\d{2}-\d{2}$/.test(quando) || !Number.isFinite(Date.parse(quando)) || new Date(quando).toISOString().slice(0, 10) !== quando)) { status.textContent = 'Confira a data de revisão.'; return; }
+      if (fase === 'revisada' && texto.length < 12) { status.textContent = 'Conte o que observou na revisão, com pelo menos 12 caracteres.'; return; }
+      const estado = jornadaEstado(), registro = estado.respostas[mod.id];
+      if (!registro?.concluida) { status.textContent = 'Conclua a missão antes de registrar a aplicação.'; return; }
+      estado.respostas[mod.id] = { ...registro, pratica: { prazo: quando, situacao: fase, resultado: texto.slice(0, 2000), revisaoEm: fase === 'revisada' ? dataLocal() : '' } };
+      const gravar = () => jornadaPersistir(estado, mod.id);
+      if (!(editor ? editor.gravar(gravar) : gravar())) { status.textContent = editor?.bloqueado() ? 'Compare as versões antes de salvar. Seu relato continua neste campo.' : 'Não foi possível guardar. Copie seu relato antes de sair.'; return; }
+      status.textContent = fase === 'revisada' ? 'Revisão registrada. Seu aprendizado ganhou um exemplo real.' : quando ? 'Aplicação registrada. Volte na data combinada para conferir.' : 'Aplicação registrada. A data da revisão ainda está pendente.';
+      emitir('vof-jornada-atualizada', { id: mod.id, pratica: true });
+    };
+    if (jornadaPessoal()) {
+      const extrair = p => ({ prazo: p?.prazo || '', situacao: p?.situacao || 'planejada', resultado: p?.resultado || '', revisaoEm: p?.revisaoEm || '' });
+      editor = protegerEditorJornada(c, {
+        ler: () => extrair(jornadaEstado().respostas[mod.id]?.pratica),
+        local: () => ({ prazo: prazo.value, situacao: situacao.value, resultado: resultado.value }),
+        aplicar: p => { prazo.value = p.prazo; situacao.value = p.situacao; resultado.value = p.resultado; },
+        descrever: p => `${p.prazo || 'Sem data'} · ${{planejada:'Planejada',em_pratica:'Em prática',revisada:'Revisada'}[p.situacao] || ''}\n${p.resultado || 'Sem relato escrito'}`,
+        antes: c.querySelector('.vof-practice-actions'), foco: resultado, atualizar, recado: texto => { status.textContent = texto; }
+      });
+      [prazo, situacao, resultado].forEach(campo => campo.addEventListener(campo === situacao ? 'change' : 'input', () => { editor.conferir(); atualizar(); }));
+    }
+    return c;
+  }
+  function jornadaSincronizacaoUI() {
+    const c = el('<section class="vof-sync-panel" data-vof-sync-panel aria-label="Salvamento da jornada"><div class="vof-sync-line"><span role="status" aria-live="polite" data-sync-status></span><button class="vof-btn ghost" type="button" data-sync-agora>Atualizar</button></div><div data-sync-legado></div><div data-sync-conflitos></div><span role="status" data-sync-aviso></span></section>');
+    let desenho = '';
+    const pintar = () => {
+      const adapter = jornadaPessoal(); if (!adapter) return;
+      const s = adapter.status(), conflitos = adapter.conflitosDetalhes();
+      c.dataset.estado = s.estado;
+      c.querySelector('[data-sync-status]').textContent = s.mensagem;
+      c.querySelector('[data-sync-agora]').disabled = s.estado === 'sincronizando';
+      const versao = JSON.stringify([s.legadoDisponivel, conflitos]);
+      if (desenho === versao) return;
+      desenho = versao;
+      const legado = c.querySelector('[data-sync-legado]');
+      legado.replaceChildren();
+      if (s.legadoDisponivel) {
+        legado.appendChild(el('<div class="vof-legacy"><p>Há respostas antigas neste aparelho, ainda sem dono identificado. Traga somente se forem suas.</p><button class="vof-btn ghost" type="button" data-importar-legado>Trazer meu progresso anterior</button></div>'));
+        legado.querySelector('button').onclick = () => {
+          if (typeof raiz.confirm !== 'function' || !raiz.confirm('Estas respostas antigas são suas? Confirmar vai associá-las à conta em que você entrou, mantendo a cópia original.')) return;
+          const ok = adapter.importarLegado();
+          c.querySelector('[data-sync-aviso]').textContent = ok ? 'Progresso trazido para sua conta. Confira o estado do salvamento acima.' : 'Não foi possível importar. A cópia original foi preservada.';
+          if (ok) adapter.sincronizar();
+          pintar();
+        };
+      }
+      const lista = c.querySelector('[data-sync-conflitos]'); lista.replaceChildren();
+      conflitos.forEach(item => {
+        const titulo = MODULOS.find(m => m.id === item.id)?.titulo || item.id;
+        const origemPendente = item.servidorPendente === true;
+        const explicacao = origemPendente
+          ? 'Há outro rascunho desta missão neste aparelho, possivelmente em outra janela. Ele ainda não foi sincronizado com sua conta. Compare antes de escolher qual versão enviar.'
+          : 'Esta missão mudou em outro aparelho. Compare antes de escolher a versão que deve ficar na conta.';
+        const d = el(`<details class="vof-sync-conflict"><summary>Duas versões: ${esc(titulo)}</summary><p>${explicacao}</p><div class="vof-sync-comparison"></div><div class="vof-sync-choices"><button type="button" class="vof-btn ghost" data-versao="local">Usar resposta deste aparelho</button><button type="button" class="vof-btn" data-versao="servidor">${origemPendente ? 'Usar outro rascunho' : 'Usar resposta salva na conta'}</button></div></details>`);
+        ['local', 'servidor'].forEach(origem => {
+          const r = item[origem] || {}, opcao = raiz.VOFExercicios?.porId?.[item.id]?.opcoes.find(o => o.id === r.opcao)?.titulo || r.opcao || 'Sem escolha';
+          d.querySelector('.vof-sync-comparison').appendChild(el(`<div><b>${origem === 'local' ? 'Neste aparelho' : origemPendente ? 'Outro rascunho · pendente' : 'Na conta'}</b><small>${esc(opcao)}</small><p>${esc(r.texto || 'Sem resposta escrita')}</p>${r.pratica ? `<small>Revisão: ${esc(r.pratica.prazo || 'sem data')} · ${esc({planejada:'Planejada',em_pratica:'Em prática',revisada:'Revisada'}[r.pratica.situacao] || '')}</small><p>${esc(r.pratica.resultado || 'Sem resultado registrado')}</p>` : ''}</div>`));
+        });
+        d.querySelectorAll('[data-versao]').forEach(b => { b.onclick = async () => {
+          b.disabled = true;
+          try { await adapter.resolverConflito(item.id, b.dataset.versao); }
+          finally { b.disabled = false; pintar(); }
+        }; });
+        lista.appendChild(d);
+      });
+    };
+    c.__pintarJornadaSync = pintar;
+    c.querySelector('[data-sync-agora]').onclick = async () => { await jornadaPessoal()?.sincronizar(); pintar(); };
+    pintar(); return c;
+  }
+  function atualizarPaineisJornada() {
+    doc()?.querySelectorAll('[data-vof-sync-panel]').forEach(c => c.__pintarJornadaSync?.());
+  }
+  ouvir('vof-jornada-sync', atualizarPaineisJornada);
+  if (typeof raiz.addEventListener === 'function') raiz.addEventListener('vof-jornada-sync', atualizarPaineisJornada);
   function aberturaUI(slide) {
     const c = el('<aside class="vof-opening-note"><span class="vof-challenge-tag">Abertura conceitual · sem pontuação</span><h3 data-vof-opening-title></h3><p data-vof-opening-text></p><div class="vof-opening-note-grid"><span><b>O que observar</b><small data-vof-opening-evidence></small></span><span><b>Para levar à conversa</b><small data-vof-opening-question></small></span></div></aside>');
     c.querySelector('[data-vof-opening-title]').textContent = slide.entrega;
@@ -476,6 +689,13 @@
     const id = 'vof-jornada-' + uid();
     const p = el(`<section class="vof-journey" aria-labelledby="${id}"><div class="vof-journey-head"><div><span class="vof-eyebrow">Sua jornada de aplicação</span><h2 id="${id}">Um passo de cada vez. Do seu jeito.</h2><p>Explore, registre uma ideia e leve à prática. Você pode retomar ou revisar qualquer missão.</p></div><div class="vof-journey-score"><b data-vof-journey-xp>0 XP</b><span data-vof-journey-level>Explorador</span></div></div><div class="vof-journey-progress" role="progressbar" aria-valuemin="0" aria-valuemax="${MODULOS.length}" aria-valuenow="0" aria-label="Missões do Método V.O.F. concluídas"><i data-vof-journey-bar></i></div><div class="vof-journey-footer"><span data-vof-journey-status></span><button type="button" class="vof-btn" data-vof-continuar>Começar missão 01</button></div><ul class="vof-achievements" aria-label="Conquistas da jornada"></ul><details class="vof-journey-map"><summary>Ver todas as ${MODULOS.length} missões <span>Escolha seu próximo passo</span></summary><ol data-missoes></ol></details><details class="vof-journey-storage"><summary>Sobre seu progresso</summary><p>Respostas e pontos ficam neste navegador. Não são sincronizados entre aparelhos. Cada missão registrada vale ${XP_MISSAO} XP uma única vez; atualizar uma resposta não soma pontos. O XP acompanha o estudo, não certifica a aplicação na empresa.</p><button type="button" class="vof-btn ghost" data-vof-limpar>Limpar progresso</button></details></section>`);
     const xp = p.querySelector('[data-vof-journey-xp]'), nivel = p.querySelector('[data-vof-journey-level]'), bar = p.querySelector('[data-vof-journey-bar]'), progresso = p.querySelector('.vof-journey-progress'), status = p.querySelector('[data-vof-journey-status]'), continuar = p.querySelector('[data-vof-continuar]');
+    if (jornadaPessoal()) {
+      p.querySelector('.vof-journey-storage p').textContent = `Sua jornada pertence à conta em que você entrou. A cópia neste aparelho permite continuar sem conexão; confira o estado do salvamento abaixo. Cada missão vale ${XP_MISSAO} XP uma única vez. O XP acompanha o estudo, não certifica a aplicação na empresa.`;
+      p.querySelector('[data-vof-limpar]').remove();
+      p.appendChild(jornadaSincronizacaoUI());
+    }
+    const aplicacoes = el('<section class="vof-practice-summary" aria-label="Aplicações para acompanhar" hidden><h3>Da missão à rotina</h3><ul></ul></section>');
+    p.querySelector('.vof-journey-map').before(aplicacoes);
     MODULOS.forEach(mod => {
       const item = el(`<li><button type="button" class="vof-mission-link" data-missao="${esc(mod.id)}">${arteArea(areaModulo(mod))}<span><small>MISSÃO ${esc(mod.ordem)} · NÍVEL ${mod.nivel}</small><b>${esc(mod.titulo)}</b><span data-situacao></span></span><strong aria-hidden="true">→</strong></button></li>`);
       item.querySelector('button').onclick = () => abrirApresentacao(APRESENTACAO.findIndex(m => m.id === mod.id), 'aplicar');
@@ -491,7 +711,19 @@
       continuar.textContent = resumo.proximo ? `${resumo.feitas ? 'Continuar' : 'Começar'} missão ${resumo.proximo.ordem} · ${resumo.proximo.titulo}` : 'Revisar primeira missão';
       continuar.onclick = () => abrirApresentacao(resumo.proximo ? APRESENTACAO.findIndex(m => m.id === resumo.proximo.id) : ABERTURAS.length, 'aplicar');
       const selos = p.querySelector('.vof-achievements');
-      selos.replaceChildren(...resumo.conquistas.map(c => el(`<li class="${c.atingida ? 'conquistada' : ''}"><span aria-hidden="true">${c.atingida ? '✦' : '◇'}</span><span><b>${esc(c.titulo)}</b><small>${c.atingida ? 'Conquistada' : 'A conquistar'}</small></span></li>`)));
+      selos.replaceChildren(...resumo.conquistas.map(c => {
+        const arte = raiz.VOFExercicios?.conquistas.find(x => x.id === c.id)?.arte;
+        return el(`<li class="${c.atingida ? 'conquistada' : ''}">${arte ? `<img src="${esc(arte)}" alt="" width="48" height="48" loading="lazy">` : `<span aria-hidden="true">${c.atingida ? '✦' : '◇'}</span>`}<span><b>${esc(c.titulo)}</b><small>${c.atingida ? 'Conquistada' : 'A conquistar'}</small></span></li>`);
+      }));
+      const pendentes = MODULOS.filter(m => estado.respostas[m.id]?.pratica && estado.respostas[m.id].pratica.situacao !== 'revisada')
+        .sort((a, b) => (estado.respostas[a.id].pratica.prazo || '9999').localeCompare(estado.respostas[b.id].pratica.prazo || '9999'));
+      aplicacoes.hidden = !pendentes.length;
+      aplicacoes.querySelector('ul').replaceChildren(...pendentes.slice(0, 3).map(m => {
+        const pratica = estado.respostas[m.id].pratica;
+        const item = el(`<li><button type="button"><b>${esc(m.titulo)}</b><small>${pratica.prazo ? `${pratica.prazo < dataLocal() ? 'Revisão pendente' : 'Revisar em'} · ${esc(pratica.prazo.split('-').reverse().join('/'))}` : 'Definir a data de revisão'} <span aria-hidden="true">→</span></small></button></li>`);
+        item.querySelector('button').onclick = () => abrirApresentacao(APRESENTACAO.findIndex(x => x.id === m.id), 'aplicar');
+        return item;
+      }));
       p.querySelectorAll('[data-missao]').forEach(b => {
         const r = estado.respostas[b.dataset.missao] || {};
         b.classList.toggle('concluida', Boolean(r.concluida));
@@ -505,7 +737,8 @@
         if (sinal) sinal.textContent = feito ? '✓ Missão concluída' : 'Missão aberta';
       });
     };
-    p.querySelector('[data-vof-limpar]').onclick = () => {
+    const limpar = p.querySelector('[data-vof-limpar]');
+    if (limpar) limpar.onclick = () => {
       const confirmou = typeof raiz.confirm === 'function' ? raiz.confirm('Limpar as respostas e o XP da jornada do Método V.O.F.?') : false;
       if (!confirmou) return;
       jornadaLimpar();
@@ -514,7 +747,9 @@
     };
     if (pararOuvinteJornada) pararOuvinteJornada();
     // A casca reutiliza este painel ao voltar à aba Método. Atualiza também fora do DOM.
-    pararOuvinteJornada = ouvir('vof-jornada-atualizada', pintar);
+    const pararInterno = ouvir('vof-jornada-atualizada', pintar);
+    if (typeof raiz.addEventListener === 'function') raiz.addEventListener('vof-jornada-atualizada', pintar);
+    pararOuvinteJornada = () => { pararInterno(); raiz.removeEventListener?.('vof-jornada-atualizada', pintar); };
     pintar();
     return p;
   }
@@ -732,6 +967,7 @@
     </div>`);
     overlay.querySelector('.vof-modal-corpo').appendChild(p);
     const q = seletor => p.querySelector(seletor);
+    if (jornadaPessoal()) q('.vof-local-note').textContent = 'Sua jornada acompanha sua conta. Confira o estado do salvamento acima.';
     const anteriorBtn = q('[data-anterior]'), proximoBtn = q('[data-proximo]'), finalizar = q('[data-finalizar]'), indice = q('[data-vof-indice]'), botaoAmpliar = q('[data-vof-ampliar]'), extraBox = q('[data-vof-extra]');
     const lista = (seletor, itens) => q(seletor).replaceChildren(...itens.map(x => el('<li>' + esc(x) + '</li>')));
 
@@ -1089,6 +1325,6 @@
     apresentacaoAtual: () => (ativa && ativa.aberta ? ativa : null),
     fecharApresentacao: () => { if (ativa) ativa.fechar(); },
     ouvir,
-    jornada: Object.freeze({ CHAVE: CHAVE_JORNADA, estado: jornadaEstado, nivel: jornadaNivel, resumo: jornadaResumo })
+    jornada: Object.freeze({ CHAVE: CHAVE_JORNADA, estado: jornadaEstado, nivel: jornadaNivel, resumo: jornadaResumo, sincronizacaoUI: jornadaSincronizacaoUI, atualizarPaineis: atualizarPaineisJornada })
   });
 })(typeof window !== 'undefined' ? window : globalThis);

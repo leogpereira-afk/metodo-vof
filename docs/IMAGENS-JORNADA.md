@@ -12,8 +12,31 @@ Criadas em 24/10/2026 com a ferramenta integrada `image_gen`, modo de geração.
 | `assets/vof/jornada-comercial.webp` | Comercial e conversas | 512 × 512 |
 | `assets/vof/jornada-operacao.webp` | Operação e processos | 512 × 512 |
 | `assets/vof/jornada-financas.webp` | Finanças e acompanhamento | 512 × 512 |
+| `assets/vof/conquista-primeiro.webp` | Primeiro passo: broto e pedra | 256 × 256 |
+| `assets/vof/conquista-ritmo.webp` | Ganhando ritmo: três degraus e fita | 256 × 256 |
+| `assets/vof/conquista-base.webp` | Base construída: três blocos e confirmação | 256 × 256 |
+| `assets/vof/conquista-trilha.webp` | Trilha completa: bússola e medalha | 256 × 256 |
 
 Os PNG originais foram convertidos para WebP. Os ícones foram reduzidos proporcionalmente, com canal alfa preservado, sem retoque, recorte ou composição. Não é necessário sprite nem posicionamento de fundo. Usar `object-fit: contain` nos ícones. Recomenda-se a imagem humanizada com legenda “Imagem ilustrativa” quando apresentada como cena da equipe. Não usar a imagem como evidência de cliente, depoimento, instalações ou resultados.
+
+As quatro imagens de conquista também foram geradas por IA em 24/10/2026. Reconhecem marcos de estudo da jornada, sem representar certificação ou comprovação de resultado empresarial. São quadradas (1:1), com transparência real preservada. A conversão usa WebP com qualidade 85 e canal alfa em qualidade 100, sem alteração criativa. Dimensões, canal alfa e áreas transparentes foram conferidos nas quatro saídas. O conjunto acrescenta aproximadamente 56 KiB.
+
+## Imagens de conquista
+
+Direção comum dos prompts:
+
+```text
+premium 3D learning achievement, teal navy gold, transparent, no text
+```
+
+| Conquista | Assunto visual |
+| --- | --- |
+| Primeiro passo | Broto ao lado de uma pedra, simbolizando o início de uma prática. |
+| Ganhando ritmo | Três degraus acompanhados por uma fita, simbolizando continuidade. |
+| Base construída | Três blocos encaixados com símbolo de confirmação, simbolizando fundamentos estudados. |
+| Trilha completa | Bússola em forma de medalha com fita, simbolizando orientação para aplicar e revisar. |
+
+Cada arquivo é uma imagem independente. Não usar o símbolo de confirmação como selo de auditoria, aprovação da empresa ou certificado profissional.
 
 ## Prompts finais
 

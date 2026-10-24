@@ -8,6 +8,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import { createHmac } from "node:crypto";
 import * as regras from "../supabase/functions/vof-sync/regras.mjs";
+import * as jornada from "../supabase/functions/vof-sync/jornada.mjs";
 
 const {
   lerCracha, ehMaquina, autorizar, precisaConfirmarAdmin, papelAtual, validarRegistro, caminhoArquivo, idValido, colValida,
@@ -416,12 +417,13 @@ function carregarPorta({ env = {}, revogado = false, revogacaoFalha = false, lei
   const fonte = fs.readFileSync(new URL("../supabase/functions/vof-sync/index.ts", import.meta.url), "utf8");
   const semSupabase = fonte.replace(/^import \{ createClient \} from "https:\/\/esm\.sh\/@supabase\/supabase-js@[^"]+";$/m, "const createClient = () => __sb;");
   assert.notEqual(semSupabase, fonte, "o import do supabase-js mudou de forma; ajuste o teste");
-  const js = semSupabase.replace(/^import \{([^}]*)\} from "\.\/regras\.mjs";$/m, "const {$1} = __regras;");
+  const js = semSupabase.replace(/^import \{([^}]*)\} from "\.\/regras\.mjs";$/m, "const {$1} = __regras;")
+    .replace(/^import \{([^}]*)\} from "\.\/jornada\.mjs";$/m, "const {$1} = __jornada;");
   assert.notEqual(js, semSupabase, "o import de regras.mjs mudou de forma; ajuste o teste");
   assert.ok(!/^\s*import\s/m.test(js), "sobrou import que o teste não sabe trocar");
   const ambiente = { SUPABASE_URL: "http://exemplo.test", SUPABASE_SERVICE_ROLE_KEY: "chave-ficticia", EQUIPE_JWT_SECRET: SEGREDO, VOF_TOKEN: MAQUINA, ...env };
   const ctx = vm.createContext({
-    __sb: sb, __regras: regras,
+    __sb: sb, __regras: regras, __jornada: jornada,
     Deno: { env: { get: (k) => ambiente[k] }, serve: (fn) => { handler = fn; } },
     crypto: globalThis.crypto, TextEncoder, TextDecoder, atob, btoa, Request, Response,
     console: { error: (...a) => chamadas.logs.push(a.join(" ")) },

@@ -214,6 +214,7 @@ function sairDaConta() {
 function confirmarSessao() {
   const quem = ESTADO.sessao && ESTADO.sessao.usuario;
   STORE.atualizar();
+  if (window.VOFJornada) window.VOFJornada.conectar();
   AUTH.eu().then(r => {
     if (!ESTADO.sessao || ESTADO.sessao.usuario !== quem) return;
     if (r === false) { encerrarSessao('Sua sessão terminou. Entre de novo.'); return; }
@@ -598,12 +599,25 @@ function pintarJornadaInicio() {
   if (!alvo || ESTADO.rota.nome !== 'inicio' || !m || !m.jornada || typeof m.jornada.resumo !== 'function') return;
   const r = m.jornada.resumo();
   const concluida = r.total > 0 && r.feitas === r.total;
-  alvo.innerHTML = '<div class="inicio-jornada-conteudo"><span class="inicio-jornada-emblema" aria-hidden="true">' + iconeArea(concluida ? 'conquista' : 'plano') + '</span><div><p class="sobretitulo">Sua jornada de aprendizagem</p><h2>' + (concluida ? 'Você completou as missões. Continue praticando.' : r.feitas ? 'Bom ter você de volta. Vamos ao próximo passo?' : 'Uma pequena ação pode começar uma grande mudança.') + '</h2><p class="inicio-proxima">' + (r.proximo ? 'Próxima missão: <b>' + esc(r.proximo.titulo) + '</b>' : 'Revisite suas respostas e leve os aprendizados para a rotina.') + '</p></div></div>' +
+  const painelSync = $('[data-vof-sync-panel]', alvo);
+  const resumo = document.createElement('div');
+  resumo.innerHTML = '<div class="inicio-jornada-conteudo"><span class="inicio-jornada-emblema" aria-hidden="true">' + iconeArea(concluida ? 'conquista' : 'plano') + '</span><div><p class="sobretitulo">Sua jornada de aprendizagem</p><h2>' + (concluida ? 'Você completou as missões. Continue praticando.' : r.feitas ? 'Bom ter você de volta. Vamos ao próximo passo?' : 'Uma pequena ação pode começar uma grande mudança.') + '</h2><p class="inicio-proxima">' + (r.proximo ? 'Próxima missão: <b>' + esc(r.proximo.titulo) + '</b>' : 'Revisite suas respostas e leve os aprendizados para a rotina.') + '</p></div></div>' +
     '<div class="inicio-jornada-avanco"><div class="inicio-jornada-numeros"><strong>' + esc(r.xp) + ' <small>XP</small></strong><span>' + esc(r.nivel) + '</span><b>' + esc(r.feitas) + '<small> / ' + esc(r.total) + ' missões</small></b></div>' +
     '<progress max="100" value="' + esc(r.percentual) + '" aria-label="Missões concluídas">' + esc(r.percentual) + '%</progress>' +
     (r.proximo ? '<button id="inicio-jornada-acao" class="botao" type="button" data-inicio-missao="' + esc(r.proximo.id) + '">' + (r.feitas ? 'Continuar minha jornada' : 'Começar minha jornada') + ' <span aria-hidden="true">→</span></button>' : '<a id="inicio-jornada-acao" class="botao" href="#/metodo">Revisar o que aprendi</a>') +
-    '<small class="inicio-jornada-local">XP e respostas de aprendizagem ficam neste navegador.</small></div>' +
-    '<div class="inicio-conquistas" aria-label="Conquistas de aprendizagem">' + (r.conquistas || []).map(c => '<span class="inicio-conquista' + (c.atingida ? ' atingida' : '') + '">' + iconeArea('conquista') + '<span>' + esc(c.titulo) + '<small>' + (c.atingida ? 'Conquistada' : 'A conquistar') + '</small></span></span>').join('') + '</div>';
+    '<small class="inicio-jornada-local">' + (window.VOFJornada ? 'Aprenda no seu ritmo. Sua jornada acompanha sua conta.' : 'XP e respostas de aprendizagem ficam neste navegador.') + '</small></div>' +
+    '<div class="inicio-conquistas" aria-label="Conquistas de aprendizagem">' + (r.conquistas || []).map(c => {
+      const arte = window.VOFExercicios?.conquistas.find(x => x.id === c.id)?.arte;
+      return '<span class="inicio-conquista' + (c.atingida ? ' atingida' : '') + '">' + (arte ? '<img src="' + esc(arte) + '" width="48" height="48" alt="" loading="lazy">' : iconeArea('conquista')) + '<span>' + esc(c.titulo) + '<small>' + (c.atingida ? 'Conquistada' : 'A conquistar') + '</small></span></span>';
+    }).join('') + '</div>';
+  // A atualização automática não remove o painel onde a pessoa compara versões.
+  // Apenas os seus irmãos mudam; o detalhe aberto e o foco continuam no mesmo nó.
+  [...alvo.childNodes].filter(no => no !== painelSync).forEach(no => no.remove());
+  while (resumo.firstChild) alvo.insertBefore(resumo.firstChild, painelSync);
+  if (window.VOFJornada && m.jornada.sincronizacaoUI) {
+    if (painelSync) painelSync.__pintarJornadaSync?.();
+    else alvo.appendChild(m.jornada.sincronizacaoUI());
+  }
   const continuar = $('[data-inicio-missao]', alvo);
   if (continuar) continuar.addEventListener('click', () => {
     const id = continuar.getAttribute('data-inicio-missao');
@@ -699,6 +713,7 @@ function renderMetodo(app) {
     }
   }
   alvo.appendChild(ESTADO.metodoNo);
+  m.jornada?.atualizarPaineis?.();
   if (ESTADO.rota.arg) abrirModuloDoMetodo(ESTADO.rota.arg, alvo);
 }
 // #/metodo/<id> abre o módulo como o cartão dele abre: a aba do nível fica
@@ -2409,6 +2424,7 @@ function renderApp(opcoes) {
   document.addEventListener('fullscreenchange', () => { const b = $('[data-p=tela]'); if (b) b.textContent = document.fullscreenElement ? 'Sair da tela cheia' : 'Tela cheia'; });
   renderApp();
   if (ESTADO.sessao) confirmarSessao();
-  setInterval(() => { if (ESTADO.sessao && document.visibilityState !== 'hidden' && !['palco', 'controle'].includes(ESTADO.rota.nome)) STORE.atualizar(); }, 60000);
-  document.addEventListener('visibilitychange', () => { if (ESTADO.sessao && document.visibilityState === 'visible') STORE.atualizar(); });
+  const atualizarConta = () => { STORE.atualizar(); window.VOFJornada?.sincronizar(); };
+  setInterval(() => { if (ESTADO.sessao && document.visibilityState !== 'hidden' && !['palco', 'controle'].includes(ESTADO.rota.nome)) atualizarConta(); }, 60000);
+  document.addEventListener('visibilitychange', () => { if (ESTADO.sessao && document.visibilityState === 'visible') atualizarConta(); });
 })();

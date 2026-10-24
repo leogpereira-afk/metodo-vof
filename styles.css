@@ -637,3 +637,9 @@ body.modo-palco { background: #fff; overflow: hidden; }
   .caminho-jornada b { font-size: 11px; }
   .caminho-jornada small { font-size: 10px; }
 }
+
+/* Conquistas ilustradas e salvamento discreto na entrada. */
+.inicio-conquista>img{width:44px;height:44px;object-fit:contain;filter:grayscale(.7);opacity:.6;flex-shrink:0}
+.inicio-conquista.atingida>img{filter:none;opacity:1}
+.inicio-jornada .vof-sync-panel{background:#f4faf8;color:#193a42;border-color:#afc8c0;margin-top:0}
+@media(max-width:600px){.inicio-conquistas{display:grid;grid-template-columns:1fr 1fr;gap:8px}.inicio-conquista>img{width:38px;height:38px}.inicio-conquista small{font-size:10px}}
