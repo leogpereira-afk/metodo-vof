@@ -264,41 +264,82 @@ dialog.veu::backdrop { background: transparent; }
 .diag-lado .resultado { position: static; }
 @media (min-width: 1000px) {
   .diag-grade { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
-  .diag-lado .resultado { position: sticky; top: 12px; }
+  /* Fixo ao lado, e com rolagem própria: mais alto que a janela, o painel
+     escondia o botão de salvar até o fim da página. */
+  .diag-lado .resultado { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; overscroll-behavior: contain; }
 }
-.diag-dim { border: 0; padding: 0; margin: 0 0 18px; min-width: 0; }
-.diag-dim legend { font: 600 22px/1.3 Fraunces, Georgia, serif; padding: 0; margin-bottom: 10px; color: var(--vof-navy); }
+.diag-dim { border: 0; padding: 0; margin: 0 0 18px; min-width: 0; scroll-margin-top: 12px; }
+.diag-dim legend { display: flex; align-items: baseline; gap: 10px; font: 600 22px/1.3 Fraunces, Georgia, serif; padding: 0; margin-bottom: 10px; color: var(--vof-navy); }
+.diag-dim legend small { font: 600 13px/1.3 Inter, system-ui, sans-serif; color: var(--suave); }
 .pratica { background: var(--card); border: 1px solid var(--linha); border-radius: var(--r); padding: 16px; margin-bottom: 12px; }
 .pratica h3 { font-size: 1.02rem; }
 .pratica-id { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--vof-navy); color: #fff; margin-right: 4px; vertical-align: 2px; }
 .pratica-pergunta { color: var(--suave); }
-.regua { display: grid; gap: 6px; margin: 10px 0 12px; }
-.nivel { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 10px 12px; border: 1.5px solid var(--linha); border-radius: 10px; cursor: pointer; font-size: 14.5px; line-height: 1.4; }
-.nivel:hover { border-color: var(--vof-blue); }
-.nivel span b { display: inline-block; min-width: 18px; color: var(--vof-blue); }
-.nivel input:checked + span { font-weight: 600; }
-.nivel input:checked + span b { color: var(--vof-teal); }
-.nivel:focus-within { outline: 3px solid var(--vof-blue); outline-offset: 1px; }
+.pratica-descricao { font-size: 14.5px; }
+/* Régua compacta: 0 a 4 e N/A lado a lado (três por linha no celular, seis
+   no desktop). O rádio nativo fica escondido e a ficha inteira é o alvo. */
+.regua { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 10px 0 8px; }
+@media (min-width: 640px) { .regua { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.nivel { position: relative; display: flex; min-height: 50px; padding: 0; cursor: pointer; font-size: 14px; line-height: 1.2; }
+.nivel input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.nivel span { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 6px 4px; border: 1.5px solid var(--linha); border-radius: 10px; background: #fff; text-align: center; min-width: 0; }
+.nivel span b { font-size: 17px; color: var(--vof-blue); font-variant-numeric: tabular-nums; }
+.nivel strong { font-weight: 600; font-size: 11.5px; color: var(--suave); overflow-wrap: anywhere; }
+.nivel:hover span { border-color: var(--vof-blue); }
+.nivel input:checked + span { background: var(--vof-navy); border-color: var(--vof-navy); }
+.nivel input:checked + span b, .nivel input:checked + span strong { color: #fff; }
+.nivel input:disabled + span { cursor: not-allowed; opacity: .7; }
+.nivel:focus-within span { outline: 3px solid var(--vof-blue); outline-offset: 1px; }
 /* N/A (caderno p. 31): só a borda muda. O alvo de toque é o mesmo das notas 0 a 4. */
-.nivel-na { border-style: dashed; }
+.nivel-na span { border-style: dashed; }
+.nivel-detalhe { min-height: 1.4em; margin: 0 0 10px; font-size: 13.5px; line-height: 1.45; color: var(--suave); }
+.nivel-detalhe b { color: var(--tinta); }
+.pratica-rodape { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }
+.pratica-rodape .evidencia { flex: 1 1 260px; min-width: 0; }
+.pratica-rodape .botao { flex: none; }
+label.evidencia textarea { min-height: 44px; resize: none; overflow: hidden; line-height: 1.45; padding: 10px 12px; }
+.regua-ajuda summary { min-height: 44px; display: flex; align-items: center; font-weight: 600; cursor: pointer; }
+.regua-niveis { margin: 6px 0 10px; padding-left: 0; list-style: none; font-size: 14.5px; }
+.regua-niveis li { padding: 6px 0; border-bottom: 1px dashed var(--linha); }
+.regua-niveis li:last-child { border-bottom: 0; }
+/* atalhos por dimensão: letra e contagem; verde quando as cinco estão marcadas */
+.diag-dims { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.dim-pulo { flex: 1 1 0; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-height: 44px; min-width: 48px; padding: 4px 6px; border: 1.5px solid var(--linha); border-radius: 10px; background: var(--card); color: var(--vof-navy); cursor: pointer; line-height: 1.15; }
+.dim-pulo b { font-size: 15px; }
+.dim-pulo span { font-size: 11.5px; font-weight: 600; color: var(--suave); font-variant-numeric: tabular-nums; }
+.dim-pulo:hover { border-color: var(--vof-blue); }
+.dim-pulo.feita { background: var(--ok-cl); border-color: var(--ok-cl); color: var(--ok); }
+.dim-pulo.feita span { color: var(--ok); }
+/* barra fixa do celular; some no desktop, onde o painel ao lado já é fixo */
+.barra-diag { position: sticky; bottom: 0; z-index: 5; margin-top: 8px; padding: 8px 0 calc(8px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, var(--bg) 35%); }
+.barra-diag-cartao { background: var(--card); border: 1px solid var(--linha); border-radius: 14px; padding: 10px 12px 12px; box-shadow: 0 -4px 24px -8px rgba(16, 43, 64, .3), var(--sombra); }
+.barra-diag-cartao .diag-dims { margin-bottom: 8px; }
+.barra-diag-linha { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.barra-diag-linha span { font-size: 13.5px; font-weight: 600; color: var(--vof-navy); min-width: 0; }
+.barra-diag-linha .botao { flex: none; }
+@media (max-width: 999px) { .diag-lado .acoes { display: none; } }
+@media (min-width: 1000px) { .barra-diag { display: none; } }
 .resultado h2 { margin-bottom: 10px; }
-.resultado-geral { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+.resultado .botao.perigo { margin-top: 12px; }
+.comparacao-legenda { margin: 0 0 4px; }
+.resultado-geral { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .resultado-geral span { color: var(--suave); font-weight: 600; }
 .resultado-geral b { font: 600 44px/1 Fraunces, Georgia, serif; color: var(--vof-navy); font-variant-numeric: tabular-nums; }
 .resultado-geral small { color: var(--suave); }
+.resultado-geral small.delta { font-size: 14px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #eceff1; color: #4b5760; }
+.resultado-geral small.delta.sobe { background: var(--ok-cl); color: var(--ok); }
+.resultado-geral small.delta.desce { background: var(--perigo-cl); color: var(--perigo); }
 .resultado-geral.aberto b { font-size: 28px; color: var(--alerta); }
 .faixa { font-size: 14.5px; margin: 0 0 10px; }
 .barra-dim b small { font-size: 12px; font-weight: 600; color: var(--alerta); }
 .barra-dim.baixo span, .barra-dim.baixo b { color: var(--perigo); }
 .barra-dim.baixo .barra i { background: var(--perigo); }
-.pratica-descricao { font-size: 14.5px; }
-.nivel strong { font-weight: 600; }
-.nivel small { display: block; color: var(--suave); font-size: 13px; margin-top: 2px; }
-.regua-ajuda summary { min-height: 44px; display: flex; align-items: center; font-weight: 600; cursor: pointer; }
 .barra-dim { display: grid; grid-template-columns: 88px 1fr 36px; align-items: center; gap: 8px; margin: 6px 0; font-size: 14px; }
 .barra-dim b { text-align: right; font-variant-numeric: tabular-nums; }
-.barra { height: 10px; border-radius: 999px; background: #e3e8ec; overflow: hidden; }
+.barra { position: relative; height: 10px; border-radius: 999px; background: #e3e8ec; }
 .barra i { display: block; height: 100%; background: linear-gradient(90deg, var(--vof-blue), var(--vof-teal)); border-radius: 999px; }
+/* marca dourada: a linha de base do mesmo alvo, na mesma escala */
+.barra u { position: absolute; top: -3px; bottom: -3px; width: 3px; margin-left: -1.5px; border-radius: 2px; background: var(--vof-gold); text-decoration: none; }
 .comparacao { width: 100%; border-collapse: collapse; font-size: 14.5px; margin: 6px 0 14px; }
 .comparacao th, .comparacao td { text-align: right; padding: 8px 10px; border-bottom: 1px solid var(--linha); font-variant-numeric: tabular-nums; }
 .comparacao th:first-child { text-align: left; }
@@ -306,6 +347,16 @@ dialog.veu::backdrop { background: transparent; }
 .comparacao .sobe { color: var(--ok); font-weight: 700; }
 .comparacao .desce { color: var(--perigo); font-weight: 700; }
 .comparacao th small.comparabilidade { display: block; font-size: 12px; font-weight: 600; color: var(--alerta); }
+/* No celular a tabela vira cartões: cada célula leva o próprio cabeçalho
+   (data-rotulo) e a coluna Diferença não fica fora da tela. */
+@media (max-width: 640px) {
+  .comparacao thead { display: none; }
+  .comparacao tbody tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px 8px; padding: 10px 0; border-bottom: 1px solid var(--linha); }
+  .comparacao th, .comparacao td { border: 0; padding: 0; text-align: left; }
+  .comparacao th { grid-column: 1 / -1; }
+  .comparacao th small.comparabilidade { display: inline; margin-left: 6px; }
+  .comparacao td::before { content: attr(data-rotulo); display: block; font-size: 11.5px; font-weight: 600; color: var(--suave); }
+}
 .nota-geral { display: inline-flex; flex-direction: column; align-items: center; min-width: 54px; padding: 4px 10px; border-radius: 10px; background: var(--info-cl); color: var(--info); font-weight: 700; font-size: 18px; }
 .nota-geral small { font-size: 11px; font-weight: 600; }
 .nota-geral.parcial { background: var(--alerta-cl); color: var(--alerta); }
