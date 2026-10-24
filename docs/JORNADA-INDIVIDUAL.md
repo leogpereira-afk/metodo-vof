@@ -1,6 +1,6 @@
 # Jornada individual e aprendizagem aplicada
 
-Implementação preparada em 24/10/2026. Ainda não publicada; nenhuma migração foi executada no banco de produção.
+Implementação publicada em 24/10/2026, após autorização do dono. Interface: commit `82db5bf`; função `vof-sync`: versão 13. A migração `jornada_pessoal` foi aplicada antes da função e da interface.
 
 ## O que mudou
 
@@ -32,13 +32,17 @@ Cada missão utiliza uma revisão e cada envio tem uma identidade própria. Repe
 
 ## Verificação e publicação
 
+Na publicação, a suíte foi executada novamente: 348/348 testes. Os workflows Verificar e Deploy passaram; os 50 arquivos públicos foram comparados com o pacote e coincidiram. A versão 13 da função contém os três módulos esperados. Consulta sem sessão retornou 401; as novas tabelas e a RPC recusam acesso direto por `anon` e `authenticated`.
+
+O RPC foi exercitado no banco de produção em transação revertida: resposta, revisão, 30 XP, repetição idempotente e conflito conferidos, sem registros de teste remanescentes. A interface autenticada salvou um rascunho temporário, confirmado no banco e recuperado após recarga, sem concluir missão nem atribuir pontos ao usuário. A conferência em um segundo navegador independente aguarda login nessa segunda sessão; não está registrada como concluída.
+
 Conferência local em 24/10/2026: **348 testes passaram, sem falhas ou testes ignorados**. Sintaxe dos quatro módulos de interface conferida, diff sem erros e 48 referências do pacote presentes. Os 50 arquivos públicos copiados foram comparados com a origem. A prévia foi exercitada em desktop e a 390 × 844 px: conclusão, 30 XP, salvamento da prática e prazo, recarga, próxima missão e comparação de edições em duas janelas. A checagem móvel não encontrou rolagem horizontal.
 
 Execute `npm test`. A suíte cobre as 18 missões, feedback, revisão prática, importação explícita, XP, isolamento por conta, respostas atrasadas, concorrência entre abas e aparelhos simulados, RPC SQL, RLS e repetição de envios. A prévia manual utiliza somente dados fictícios e uma API simulada.
 
 O projeto é estático e não possui etapa de build. Gere o pacote pela lista da etapa de cópia em `.github/workflows/deploy.yml` e execute `node scripts/conferir-publicacao.mjs <pasta>` para validar todas as referências.
 
-Depois de autorizada a publicação:
+Sequência para próximas publicações e conferências:
 
 1. Conferir a versão atual do repositório e do servidor e preservar o procedimento de recuperação existente.
 2. Aplicar a migração aditiva e publicar `vof-sync` antes da interface. Não alterar cadastros ou credenciais dos usuários para realizar o teste.
